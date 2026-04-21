@@ -5,6 +5,7 @@ import { createPaymentRequest } from "@/lib/monday/queries";
 import type { PaymentRequestPayload } from "@/lib/monday/types";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 10;
 
 function isPositiveNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;

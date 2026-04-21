@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { CourseRateBox } from "@/components/course-rate-box";
 import { FormPageShell } from "@/components/form-page-shell";
 import { LoadingSpinner } from "@/components/loading-spinner";
 import { SearchSelect } from "@/components/search-select";
@@ -22,6 +23,33 @@ function toDisplayDate(value: string) {
   return `${day}/${month}/${year}`;
 }
 
+function getDeviationMessage(amountText: string, rate: number | null, directionLabel: string) {
+  if (!amountText || rate === null || rate <= 0) {
+    return null;
+  }
+
+  const amount = Number(amountText);
+  if (!Number.isFinite(amount)) {
+    return null;
+  }
+
+  const deltaPercent = ((amount - rate) / rate) * 100;
+
+  if (deltaPercent > 10) {
+    return {
+      message: `⚠️ סכום ${directionLabel} חורג ב-${Math.round(deltaPercent)}% מהתעריף המוסכם. ודא שזה נכון.`,
+    };
+  }
+
+  if (deltaPercent < -10) {
+    return {
+      message: `ℹ️ סכום ${directionLabel} נמוך מהתעריף המוסכם. האם היו החלפות או קיזוזים?`,
+    };
+  }
+
+  return null;
+}
+
 export default function ReplacementSubmitPage() {
   const router = useRouter();
   const { session, isReady } = useSessionGuard();
@@ -38,6 +66,18 @@ export default function ReplacementSubmitPage() {
   const [travelAmount, setTravelAmount] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const selectedCourse = courses.find((course) => course.id === Number(courseId)) || null;
+  const teachingWarning = getDeviationMessage(
+    teachingAmount,
+    selectedCourse?.teachingRate ?? null,
+    "ההוראה",
+  );
+  const travelWarning = getDeviationMessage(
+    travelAmount,
+    selectedCourse?.travelRate ?? null,
+    "הנסיעות",
+  );
 
   useEffect(() => {
     let ignore = false;
@@ -116,6 +156,12 @@ export default function ReplacementSubmitPage() {
       ignore = true;
     };
   }, [replacedTeacherId]);
+
+  useEffect(() => {
+    setTeachingAmount("");
+    setTravelAmount("");
+    setSubmitError(null);
+  }, [courseId]);
 
   if (!isReady || !session) {
     return null;
@@ -221,6 +267,13 @@ export default function ReplacementSubmitPage() {
         )}
       </div>
 
+      {selectedCourse ? (
+        <CourseRateBox
+          teachingRate={selectedCourse.teachingRate}
+          travelRate={selectedCourse.travelRate}
+        />
+      ) : null}
+
       <div className="grid gap-5 sm:grid-cols-3">
         <div className="space-y-2">
           <Label htmlFor="replacementDate">מתי החלפתי</Label>
@@ -242,6 +295,11 @@ export default function ReplacementSubmitPage() {
             value={teachingAmount}
             onChange={(event) => setTeachingAmount(event.target.value)}
           />
+          {teachingWarning ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {teachingWarning.message}
+            </div>
+          ) : null}
         </div>
         <div className="space-y-2">
           <Label htmlFor="replacementTravelAmount">נסיעות - סכום</Label>
@@ -254,6 +312,11 @@ export default function ReplacementSubmitPage() {
             value={travelAmount}
             onChange={(event) => setTravelAmount(event.target.value)}
           />
+          {travelWarning ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {travelWarning.message}
+            </div>
+          ) : null}
         </div>
       </div>
 

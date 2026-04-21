@@ -41,6 +41,11 @@ function getMondayConfig() {
   return { token, apiUrl };
 }
 
+function getOperationName(query: string) {
+  const match = query.match(/\b(?:query|mutation)\s+([A-Za-z0-9_]+)/);
+  return match?.[1] ?? "AnonymousOperation";
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -65,17 +70,21 @@ function stableSerialize(value: unknown): string {
     .join(",")}}`;
 }
 
-async function performQuery<T>(query: string, variablesJson: string): Promise<T> {
+async function performRequest<T>(query: string, variablesJson: string): Promise<T> {
   const { token, apiUrl } = getMondayConfig();
+  const variables = JSON.parse(variablesJson) as Record<string, unknown>;
+  const operationName = getOperationName(query);
   let attempt = 0;
   const maxAttempts = 3;
 
   while (attempt < maxAttempts) {
     attempt += 1;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30_000);
+    const timeoutId = setTimeout(() => controller.abort(), 10_000);
 
     try {
+      console.log(`[Monday API] ${operationName} attempt ${attempt}/${maxAttempts}`, variables);
+
       const response = await fetch(apiUrl, {
         method: "POST",
         headers: {
@@ -84,7 +93,7 @@ async function performQuery<T>(query: string, variablesJson: string): Promise<T>
         },
         body: JSON.stringify({
           query,
-          variables: JSON.parse(variablesJson),
+          variables,
         }),
         cache: "no-store",
         signal: controller.signal,
@@ -114,15 +123,21 @@ async function performQuery<T>(query: string, variablesJson: string): Promise<T>
         throw new MondayApiError("Monday API returned an empty response.", response.status || 500, "EMPTY_DATA");
       }
 
+      console.log(`[Monday API] ${operationName} succeeded`);
       return payload.data;
     } catch (error) {
       if (error instanceof MondayApiError) {
+        console.warn(`[Monday API] ${operationName} failed`, {
+          statusCode: error.statusCode,
+          errorCode: error.errorCode,
+          message: error.message,
+        });
         throw error;
       }
 
       if (error instanceof Error && error.name === "AbortError") {
         throw new MondayApiError(
-          "Monday API request timed out after 30 seconds.",
+          "Monday API request timed out after 10 seconds.",
           504,
           "MONDAY_TIMEOUT",
         );
@@ -146,11 +161,18 @@ async function performQuery<T>(query: string, variablesJson: string): Promise<T>
   throw new MondayApiError("Monday API request exhausted all retry attempts.", 429, "RETRY_EXHAUSTED");
 }
 
-const cachedQuery = cache(async <T>(query: string, variablesJson: string) => performQuery<T>(query, variablesJson));
+const cachedQuery = cache(async <T>(query: string, variablesJson: string) => performRequest<T>(query, variablesJson));
 
 export async function fetchQuery<T>(
   query: string,
   variables: Record<string, unknown> = {},
 ): Promise<T> {
   return cachedQuery<T>(query, stableSerialize(variables));
+}
+
+export async function fetchMutation<T>(
+  query: string,
+  variables: Record<string, unknown> = {},
+): Promise<T> {
+  return performRequest<T>(query, stableSerialize(variables));
 }

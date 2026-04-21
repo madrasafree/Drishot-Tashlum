@@ -4,6 +4,12 @@
 
 אפליקציית Next.js להגשת דרישות תשלום למורים בעמותת מדרסה. האפליקציה מחליפה טופס Fillout קיים, שומרת state זמני ב-`sessionStorage`, וקוראת/כותבת ישירות ל-`Monday.com` דרך GraphQL API בלי מסד נתונים.
 
+## What V2 Adds
+
+- הצגת תעריפי קורס מוסכמים במסלולי `קורס` ו-`החלפה`, כולל אזהרת חריגה של ±10%.
+- בדיקת כפילות חכמה שמונעת הגשת דרישת `קורס` פעילה כפולה על אותו קורס ואותו מורה.
+- זיהוי דרישות `החלפה` קיימות עבור הקורס והצעת קיזוז אוטומטי, כולל יצירת update ב-Monday אחרי ההגשה.
+
 ## Stack
 
 - Next.js 15 עם App Router ו-TypeScript
@@ -55,6 +61,12 @@ npm run dev
 - `lib/monday/` מכיל constants, טיפוסים, client ו-query helpers ל-Monday
 - `lib/session.ts` מנהל את `sessionStorage` בין שלבי הטופס
 - `components/` מכיל קומפוננטות UI וקומפוננטות shared
+
+## Verification Notes
+
+- ההטמעה נבנתה כך שכל כשל בפיצ'רי V2 הלא-קריטיים, כמו בדיקת כפילות או זיהוי החלפות, לא יחסום הגשה אם קריאת Monday עצמה נכשלה.
+- הקריאות ל-Monday מתועדות ב-`console.log`/`console.warn` ומוגבלות ל-timeout של 10 שניות.
+- `getCoursesForTeacher` נשמר עם cache של 30 שניות כדי להפחית שימוש מיותר ב-quota של Monday.
 
 ## Monday Boards
 

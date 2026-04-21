@@ -42,6 +42,32 @@ export interface PrivateLesson {
   status: string;
 }
 
+export interface ExistingPaymentRequest {
+  id: number;
+  name: string;
+  status: string;
+  submitDate: string | null;
+}
+
+export interface DuplicatePaymentRequestResult {
+  isDuplicate: boolean;
+  existingItem?: ExistingPaymentRequest;
+}
+
+export interface Replacement {
+  id: number;
+  replacingTeacherName: string;
+  replacementDate: string;
+  teachingAmount: number;
+  travelAmount: number;
+  totalAmount: number;
+}
+
+export interface ReplacementLookupResult {
+  replacements: Replacement[];
+  totalSuggestedDeduction: number;
+}
+
 export type PaymentType = "course" | "replacement" | "other" | "private_lessons";
 
 export interface PaymentRequestInput {
@@ -71,4 +97,11 @@ export interface SupplierCheckResult {
 
 export interface PaymentRequestPayload extends PaymentRequestInput {
   teacherName: string;
+  deductionSummary?: {
+    applied: boolean;
+    replacements: Replacement[];
+    totalTeachingDeduction: number;
+    totalTravelDeduction: number;
+    totalSuggestedDeduction: number;
+  } | null;
 }

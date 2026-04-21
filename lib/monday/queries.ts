@@ -1,22 +1,30 @@
+import { unstable_cache } from "next/cache";
+
 import {
+  ACTIVE_PAYMENT_STATUS_INDEXES,
   BOARD_IDS,
   COURSE_COLUMNS,
   COURSE_STATE_LABELS,
   DEFAULT_STATUS_LABEL,
   PAYMENT_REQUEST_COLUMNS,
+  PAYMENT_REQUEST_STATUS_LABELS,
+  PAYMENT_TYPE_INDEXES,
   PAYMENT_TYPE_LABELS,
   PRIVATE_LESSON_COLUMNS,
   PRIVATE_LESSON_STATUS_LABELS,
   SUPPLIER_COLUMNS,
   TEACHER_COLUMNS,
 } from "@/lib/monday/constants";
-import { fetchQuery } from "@/lib/monday/client";
+import { fetchMutation, fetchQuery } from "@/lib/monday/client";
 import { getTodayInIsrael } from "@/lib/utils";
 import type {
   Course,
-  PaymentRequestInput,
+  DuplicatePaymentRequestResult,
+  PaymentRequestPayload,
   PaymentType,
   PrivateLesson,
+  Replacement,
+  ReplacementLookupResult,
   Supplier,
   Teacher,
   TeacherSimple,
@@ -61,6 +69,12 @@ type CreateItemResponse = {
   create_item: {
     id: string;
     name: string;
+  };
+};
+
+type CreateUpdateResponse = {
+  create_update: {
+    id: string;
   };
 };
 
@@ -128,6 +142,22 @@ function parseNumber(value: ColumnValueResponse | undefined) {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
+function formatUpdateMoney(value: number) {
+  return `${new Intl.NumberFormat("he-IL", { maximumFractionDigits: 0 }).format(value)} ש"ח`;
+}
+
+function buildReplacementUpdateBody(summary: NonNullable<PaymentRequestPayload["deductionSummary"]>) {
+  const lines = summary.replacements.map(
+    (replacement) =>
+      `- ${replacement.replacementDate} - ${replacement.replacingTeacherName} - ${formatUpdateMoney(replacement.totalAmount)}`,
+  );
+
+  return [
+    `קוזזו ${formatUpdateMoney(summary.totalSuggestedDeduction)} בגין ההחלפות הבאות:`,
+    ...lines,
+  ].join("\n");
+}
+
 function parseTeacher(item: MondayItemResponse): Teacher {
   const supplierRelation = getColumn(item, TEACHER_COLUMNS.SUPPLIER_RELATION);
 
@@ -136,7 +166,10 @@ function parseTeacher(item: MondayItemResponse): Teacher {
     name: item.name,
     email: getColumn(item, TEACHER_COLUMNS.EMAIL)?.email || getColumn(item, TEACHER_COLUMNS.EMAIL)?.text || "",
     supplierRelationId: parseLinkedIds(supplierRelation)[0] ?? null,
-    supplierFileStatus: getColumn(item, TEACHER_COLUMNS.SUPPLIER_FILE_STATUS)?.label || getColumn(item, TEACHER_COLUMNS.SUPPLIER_FILE_STATUS)?.text || "",
+    supplierFileStatus:
+      getColumn(item, TEACHER_COLUMNS.SUPPLIER_FILE_STATUS)?.label ||
+      getColumn(item, TEACHER_COLUMNS.SUPPLIER_FILE_STATUS)?.text ||
+      "",
     coursesRelationIds: parseLinkedIds(getColumn(item, TEACHER_COLUMNS.COURSES_RELATION)),
     privateLessonsRelationIds: parseLinkedIds(getColumn(item, TEACHER_COLUMNS.PRIVATE_LESSONS_RELATION)),
   };
@@ -274,7 +307,9 @@ export async function getActiveTeachers(): Promise<Teacher[]> {
     columnIds: TEACHER_COLUMN_IDS,
   });
 
-  return (response.boards[0]?.items_page.items || []).map(parseTeacher).sort((left, right) => left.name.localeCompare(right.name, "he"));
+  return (response.boards[0]?.items_page.items || [])
+    .map(parseTeacher)
+    .sort((left, right) => left.name.localeCompare(right.name, "he"));
 }
 
 export async function getSupplierById(supplierId: number): Promise<Supplier | null> {
@@ -290,30 +325,38 @@ export async function getSupplierById(supplierId: number): Promise<Supplier | nu
   return supplier ? parseSupplier(supplier) : null;
 }
 
+const getCoursesForTeacherCached = unstable_cache(
+  async (teacherId: number) => {
+    const teacher = await getTeacherById(teacherId);
+    if (!teacher?.coursesRelationIds.length) {
+      return [];
+    }
+
+    const items = await getItemsByIds(teacher.coursesRelationIds, [
+      COURSE_COLUMNS.START_DATE,
+      COURSE_COLUMNS.END_DATE,
+      COURSE_COLUMNS.TEACHING_RATE,
+      COURSE_COLUMNS.TRAVEL_RATE,
+      COURSE_COLUMNS.COURSE_STATE,
+    ]);
+
+    const allowedStates = new Set([
+      COURSE_STATE_LABELS.RUNNING,
+      COURSE_STATE_LABELS.FINISHED,
+      COURSE_STATE_LABELS.UPCOMING,
+    ]);
+
+    return items
+      .map(parseCourse)
+      .filter((course) => allowedStates.has(course.state))
+      .sort((left, right) => left.name.localeCompare(right.name, "he"));
+  },
+  ["courses-for-teacher"],
+  { revalidate: 30 },
+);
+
 export async function getCoursesForTeacher(teacherId: number): Promise<Course[]> {
-  const teacher = await getTeacherById(teacherId);
-  if (!teacher?.coursesRelationIds.length) {
-    return [];
-  }
-
-  const items = await getItemsByIds(teacher.coursesRelationIds, [
-    COURSE_COLUMNS.START_DATE,
-    COURSE_COLUMNS.END_DATE,
-    COURSE_COLUMNS.TEACHING_RATE,
-    COURSE_COLUMNS.TRAVEL_RATE,
-    COURSE_COLUMNS.COURSE_STATE,
-  ]);
-
-  const allowedStates = new Set([
-    COURSE_STATE_LABELS.RUNNING,
-    COURSE_STATE_LABELS.FINISHED,
-    COURSE_STATE_LABELS.UPCOMING,
-  ]);
-
-  return items
-    .map(parseCourse)
-    .filter((course) => allowedStates.has(course.state))
-    .sort((left, right) => left.name.localeCompare(right.name, "he"));
+  return getCoursesForTeacherCached(teacherId);
 }
 
 export async function getAllActiveTeachers(): Promise<TeacherSimple[]> {
@@ -350,6 +393,161 @@ export async function getPrivateLessonsForTeacher(teacherId: number): Promise<Pr
     .sort((left, right) => left.studentName.localeCompare(right.studentName, "he"));
 }
 
+export async function checkDuplicatePaymentRequest(
+  teacherId: number,
+  courseId: number,
+): Promise<DuplicatePaymentRequestResult> {
+  const query = `
+    query CheckDuplicatePaymentRequest {
+      boards(ids: [${BOARD_IDS.PAYMENT_REQUESTS}]) {
+        items_page(
+          limit: 1
+          query_params: {
+            operator: and
+            rules: [
+              {
+                column_id: "${PAYMENT_REQUEST_COLUMNS.SUBMITTER}"
+                compare_value: [${teacherId}]
+                operator: any_of
+              }
+              {
+                column_id: "${PAYMENT_REQUEST_COLUMNS.COURSE}"
+                compare_value: [${courseId}]
+                operator: any_of
+              }
+              {
+                column_id: "${PAYMENT_REQUEST_COLUMNS.PAYMENT_TYPE}"
+                compare_value: [${PAYMENT_TYPE_INDEXES.COURSE}]
+                operator: any_of
+              }
+              {
+                column_id: "${PAYMENT_REQUEST_COLUMNS.STATUS}"
+                compare_value: [${ACTIVE_PAYMENT_STATUS_INDEXES.join(",")}]
+                operator: any_of
+              }
+            ]
+          }
+        ) {
+          items {
+            id
+            name
+            column_values(ids: ["${PAYMENT_REQUEST_COLUMNS.STATUS}", "${PAYMENT_REQUEST_COLUMNS.SUBMIT_DATE}"]) {
+              ${COLUMN_VALUE_FIELDS}
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const response = await fetchQuery<BoardsItemsResponse>(query);
+  const existingItem = response.boards[0]?.items_page.items[0];
+
+  if (!existingItem) {
+    return { isDuplicate: false };
+  }
+
+  return {
+    isDuplicate: true,
+    existingItem: {
+      id: Number(existingItem.id),
+      name: existingItem.name,
+      status:
+        getColumn(existingItem, PAYMENT_REQUEST_COLUMNS.STATUS)?.label ||
+        PAYMENT_REQUEST_STATUS_LABELS.NEW,
+      submitDate: getColumn(existingItem, PAYMENT_REQUEST_COLUMNS.SUBMIT_DATE)?.date || null,
+    },
+  };
+}
+
+export async function findReplacementsForCourse(
+  teacherId: number,
+  courseId: number,
+): Promise<Replacement[]> {
+  const query = `
+    query FindReplacementsForCourse {
+      boards(ids: [${BOARD_IDS.PAYMENT_REQUESTS}]) {
+        items_page(
+          limit: 100
+          query_params: {
+            operator: and
+            rules: [
+              {
+                column_id: "${PAYMENT_REQUEST_COLUMNS.PAYMENT_TYPE}"
+                compare_value: [${PAYMENT_TYPE_INDEXES.REPLACEMENT}]
+                operator: any_of
+              }
+              {
+                column_id: "${PAYMENT_REQUEST_COLUMNS.COURSE}"
+                compare_value: [${courseId}]
+                operator: any_of
+              }
+              {
+                column_id: "${PAYMENT_REQUEST_COLUMNS.REPLACED_TEACHER}"
+                compare_value: [${teacherId}]
+                operator: any_of
+              }
+              {
+                column_id: "${PAYMENT_REQUEST_COLUMNS.STATUS}"
+                compare_value: [${ACTIVE_PAYMENT_STATUS_INDEXES.join(",")}]
+                operator: any_of
+              }
+            ]
+          }
+        ) {
+          items {
+            id
+            name
+            column_values(ids: [
+              "${PAYMENT_REQUEST_COLUMNS.SUBMITTER}",
+              "${PAYMENT_REQUEST_COLUMNS.REPLACEMENT_DATE}",
+              "${PAYMENT_REQUEST_COLUMNS.TEACHING_AMOUNT}",
+              "${PAYMENT_REQUEST_COLUMNS.TRAVEL_AMOUNT}"
+            ]) {
+              ${COLUMN_VALUE_FIELDS}
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const response = await fetchQuery<BoardsItemsResponse>(query);
+  const items = response.boards[0]?.items_page.items || [];
+
+  return items.map((item) => {
+    const submitter = getColumn(item, PAYMENT_REQUEST_COLUMNS.SUBMITTER);
+    const teachingAmount = parseNumber(getColumn(item, PAYMENT_REQUEST_COLUMNS.TEACHING_AMOUNT)) || 0;
+    const travelAmount = parseNumber(getColumn(item, PAYMENT_REQUEST_COLUMNS.TRAVEL_AMOUNT)) || 0;
+
+    return {
+      id: Number(item.id),
+      replacingTeacherName:
+        submitter?.linked_items?.[0]?.name || submitter?.display_value || "מורה מחליף",
+      replacementDate: getColumn(item, PAYMENT_REQUEST_COLUMNS.REPLACEMENT_DATE)?.text || "",
+      teachingAmount,
+      travelAmount,
+      totalAmount: teachingAmount + travelAmount,
+    };
+  });
+}
+
+export async function getReplacementLookupResult(
+  teacherId: number,
+  courseId: number,
+): Promise<ReplacementLookupResult> {
+  const replacements = await findReplacementsForCourse(teacherId, courseId);
+  const totalSuggestedDeduction = replacements.reduce(
+    (sum, replacement) => sum + replacement.totalAmount,
+    0,
+  );
+
+  return {
+    replacements,
+    totalSuggestedDeduction,
+  };
+}
+
 function getPaymentTypeLabel(paymentType: PaymentType) {
   switch (paymentType) {
     case "course":
@@ -365,9 +563,22 @@ function getPaymentTypeLabel(paymentType: PaymentType) {
   }
 }
 
-export async function createPaymentRequest(
-  data: PaymentRequestInput & { teacherName: string },
-): Promise<{ itemId: number }> {
+export async function createPaymentRequestUpdate(itemId: number, body: string): Promise<void> {
+  const mutation = `
+    mutation CreatePaymentRequestUpdate($itemId: ID!, $body: String!) {
+      create_update(item_id: $itemId, body: $body) {
+        id
+      }
+    }
+  `;
+
+  await fetchMutation<CreateUpdateResponse>(mutation, {
+    itemId,
+    body,
+  });
+}
+
+export async function createPaymentRequest(data: PaymentRequestPayload): Promise<{ itemId: number }> {
   const today = getTodayInIsrael();
   const paymentLabel = getPaymentTypeLabel(data.paymentType);
 
@@ -435,13 +646,23 @@ export async function createPaymentRequest(
     }
   `;
 
-  const response = await fetchQuery<CreateItemResponse>(mutation, {
+  const response = await fetchMutation<CreateItemResponse>(mutation, {
     boardId: BOARD_IDS.PAYMENT_REQUESTS,
     itemName,
     columnValues: JSON.stringify(columnValues),
   });
 
+  const itemId = Number(response.create_item.id);
+
+  if (data.deductionSummary?.applied && data.deductionSummary.replacements.length) {
+    try {
+      await createPaymentRequestUpdate(itemId, buildReplacementUpdateBody(data.deductionSummary));
+    } catch (error) {
+      console.warn("[Monday API] Failed to create payment request update", error);
+    }
+  }
+
   return {
-    itemId: Number(response.create_item.id),
+    itemId,
   };
 }

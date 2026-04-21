@@ -9,6 +9,7 @@ import { getSupplierById, getTeacherById } from "@/lib/monday/queries";
 import { getTodayInIsrael } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 10;
 
 const BLOCKING_STATUSES = new Set<string>([
   TEACHER_SUPPLIER_STATUS_LABELS.DOCUMENTS_EXPIRED,

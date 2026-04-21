@@ -4,6 +4,7 @@ import { MondayApiError } from "@/lib/monday/client";
 import { getActiveTeachers } from "@/lib/monday/queries";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 10;
 
 export async function GET() {
   try {

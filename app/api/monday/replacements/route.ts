@@ -1,28 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { MondayApiError } from "@/lib/monday/client";
-import { getPrivateLessonsForTeacher } from "@/lib/monday/queries";
+import { getReplacementLookupResult } from "@/lib/monday/queries";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 10;
 
 export async function GET(request: NextRequest) {
   const teacherId = Number(request.nextUrl.searchParams.get("teacherId"));
+  const courseId = Number(request.nextUrl.searchParams.get("courseId"));
 
-  if (!teacherId || Number.isNaN(teacherId)) {
-    return NextResponse.json({ error: "teacherId is required." }, { status: 400 });
+  if (!teacherId || Number.isNaN(teacherId) || !courseId || Number.isNaN(courseId)) {
+    return NextResponse.json(
+      { error: "teacherId and courseId are required." },
+      { status: 400 },
+    );
   }
 
   try {
-    const lessons = await getPrivateLessonsForTeacher(teacherId);
-    return NextResponse.json(lessons);
+    const result = await getReplacementLookupResult(teacherId, courseId);
+    return NextResponse.json(result);
   } catch (error) {
     if (error instanceof MondayApiError) {
       return NextResponse.json({ error: error.message }, { status: error.statusCode });
     }
 
     return NextResponse.json(
-      { error: "לא הצלחנו לטעון את השיעורים הפרטיים." },
+      { error: "לא הצלחנו למצוא החלפות רלוונטיות לקורס." },
       { status: 500 },
     );
   }

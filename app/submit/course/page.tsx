@@ -3,15 +3,50 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { CourseRateBox } from "@/components/course-rate-box";
 import { FormPageShell } from "@/components/form-page-shell";
 import { LoadingSpinner } from "@/components/loading-spinner";
 import { SearchSelect } from "@/components/search-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { Course, PaymentRequestPayload } from "@/lib/monday/types";
-import { formatCurrency, formatShortDate } from "@/lib/utils";
 import { useSessionGuard } from "@/hooks/use-session-guard";
+import type {
+  Course,
+  DuplicatePaymentRequestResult,
+  PaymentRequestPayload,
+  ReplacementLookupResult,
+} from "@/lib/monday/types";
+import { formatCurrency, formatShortDate } from "@/lib/utils";
+
+function getDeviationMessage(amountText: string, rate: number | null, directionLabel: string) {
+  if (!amountText || rate === null || rate <= 0) {
+    return null;
+  }
+
+  const amount = Number(amountText);
+  if (!Number.isFinite(amount)) {
+    return null;
+  }
+
+  const deltaPercent = ((amount - rate) / rate) * 100;
+
+  if (deltaPercent > 10) {
+    return {
+      tone: "warning" as const,
+      message: `⚠️ סכום ${directionLabel} חורג ב-${Math.round(deltaPercent)}% מהתעריף המוסכם. ודא שזה נכון.`,
+    };
+  }
+
+  if (deltaPercent < -10) {
+    return {
+      tone: "info" as const,
+      message: `ℹ️ סכום ${directionLabel} נמוך מהתעריף המוסכם. האם היו החלפות או קיזוזים?`,
+    };
+  }
+
+  return null;
+}
 
 export default function CourseSubmitPage() {
   const router = useRouter();
@@ -22,8 +57,39 @@ export default function CourseSubmitPage() {
   const [courseId, setCourseId] = useState("");
   const [teachingAmount, setTeachingAmount] = useState("");
   const [travelAmount, setTravelAmount] = useState("");
+  const [duplicateResult, setDuplicateResult] = useState<DuplicatePaymentRequestResult>({
+    isDuplicate: false,
+  });
+  const [duplicateLoading, setDuplicateLoading] = useState(false);
+  const [replacementsResult, setReplacementsResult] = useState<ReplacementLookupResult>({
+    replacements: [],
+    totalSuggestedDeduction: 0,
+  });
+  const [replacementsLoading, setReplacementsLoading] = useState(false);
+  const [applyAutomaticDeduction, setApplyAutomaticDeduction] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const selectedCourse = courses.find((course) => course.id === Number(courseId)) || null;
+  const totalTeachingDeduction = replacementsResult.replacements.reduce(
+    (sum, replacement) => sum + replacement.teachingAmount,
+    0,
+  );
+  const totalTravelDeduction = replacementsResult.replacements.reduce(
+    (sum, replacement) => sum + replacement.travelAmount,
+    0,
+  );
+
+  const teachingWarning = getDeviationMessage(
+    teachingAmount,
+    selectedCourse?.teachingRate ?? null,
+    "ההוראה",
+  );
+  const travelWarning = getDeviationMessage(
+    travelAmount,
+    selectedCourse?.travelRate ?? null,
+    "הנסיעות",
+  );
 
   useEffect(() => {
     if (!session) {
@@ -64,6 +130,124 @@ export default function CourseSubmitPage() {
     };
   }, [session]);
 
+  useEffect(() => {
+    setTeachingAmount("");
+    setTravelAmount("");
+    setSubmitError(null);
+    setDuplicateResult({ isDuplicate: false });
+    setReplacementsResult({ replacements: [], totalSuggestedDeduction: 0 });
+    setApplyAutomaticDeduction(false);
+  }, [courseId]);
+
+  useEffect(() => {
+    if (!session || !courseId) {
+      return;
+    }
+
+    let ignore = false;
+
+    async function loadDuplicateCheck() {
+      setDuplicateLoading(true);
+
+      try {
+        const response = await fetch(
+          `/api/monday/check-duplicate?teacherId=${session.teacherId}&courseId=${courseId}`,
+        );
+
+        if (!response.ok) {
+          throw new Error("Duplicate check failed.");
+        }
+
+        const data = (await response.json()) as DuplicatePaymentRequestResult;
+        if (!ignore) {
+          setDuplicateResult(data);
+        }
+      } catch (requestError) {
+        console.warn("[Course Submit] Duplicate check failed", requestError);
+        if (!ignore) {
+          setDuplicateResult({ isDuplicate: false });
+        }
+      } finally {
+        if (!ignore) {
+          setDuplicateLoading(false);
+        }
+      }
+    }
+
+    void loadDuplicateCheck();
+
+    return () => {
+      ignore = true;
+    };
+  }, [courseId, session]);
+
+  useEffect(() => {
+    if (!session || !courseId) {
+      return;
+    }
+
+    let ignore = false;
+
+    async function loadReplacements() {
+      setReplacementsLoading(true);
+
+      try {
+        const response = await fetch(
+          `/api/monday/replacements?teacherId=${session.teacherId}&courseId=${courseId}`,
+        );
+
+        if (!response.ok) {
+          throw new Error("Replacements lookup failed.");
+        }
+
+        const data = (await response.json()) as ReplacementLookupResult;
+        if (!ignore) {
+          setReplacementsResult(data);
+          setApplyAutomaticDeduction(data.replacements.length > 0);
+        }
+      } catch (requestError) {
+        console.warn("[Course Submit] Replacement lookup failed", requestError);
+        if (!ignore) {
+          setReplacementsResult({ replacements: [], totalSuggestedDeduction: 0 });
+          setApplyAutomaticDeduction(false);
+        }
+      } finally {
+        if (!ignore) {
+          setReplacementsLoading(false);
+        }
+      }
+    }
+
+    void loadReplacements();
+
+    return () => {
+      ignore = true;
+    };
+  }, [courseId, session]);
+
+  useEffect(() => {
+    if (!selectedCourse || !applyAutomaticDeduction || !replacementsResult.replacements.length) {
+      return;
+    }
+
+    setTeachingAmount(
+      selectedCourse.teachingRate === null
+        ? ""
+        : String(Math.max(0, selectedCourse.teachingRate - totalTeachingDeduction)),
+    );
+    setTravelAmount(
+      selectedCourse.travelRate === null
+        ? ""
+        : String(Math.max(0, selectedCourse.travelRate - totalTravelDeduction)),
+    );
+  }, [
+    applyAutomaticDeduction,
+    replacementsResult.replacements.length,
+    selectedCourse,
+    totalTeachingDeduction,
+    totalTravelDeduction,
+  ]);
+
   if (!isReady || !session) {
     return null;
   }
@@ -85,6 +269,16 @@ export default function CourseSubmitPage() {
       courseId: Number(courseId),
       teachingAmount: Number(teachingAmount),
       travelAmount: travelAmount ? Number(travelAmount) : 0,
+      deductionSummary:
+        applyAutomaticDeduction && replacementsResult.replacements.length
+          ? {
+              applied: true,
+              replacements: replacementsResult.replacements,
+              totalTeachingDeduction,
+              totalTravelDeduction,
+              totalSuggestedDeduction: replacementsResult.totalSuggestedDeduction,
+            }
+          : null,
     };
 
     try {
@@ -149,6 +343,68 @@ export default function CourseSubmitPage() {
         )}
       </div>
 
+      {selectedCourse ? (
+        <div className="space-y-3">
+          <CourseRateBox
+            teachingRate={selectedCourse.teachingRate}
+            travelRate={selectedCourse.travelRate}
+          />
+
+          {duplicateLoading ? <LoadingSpinner label="בודק אם כבר הוגשה דרישת תשלום על הקורס..." /> : null}
+
+          {duplicateResult.isDuplicate && duplicateResult.existingItem ? (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-900">
+              <div className="mb-2 font-semibold">🚫 כבר הוגשה דרישת תשלום על הקורס הזה</div>
+              <p>
+                הגשת את הדרישה ב-{formatShortDate(duplicateResult.existingItem.submitDate)} (סטטוס:{" "}
+                {duplicateResult.existingItem.status}).
+              </p>
+              <p className="mt-2">
+                לא ניתן להגיש דרישה נוספת על אותו הקורס. אם הדרישה הקיימת שגויה, פנה למשרד
+                מדרסה (office@madrasafree.com) לביטולה ואז תוכל להגיש מחדש.
+              </p>
+            </div>
+          ) : null}
+
+          {replacementsLoading ? <LoadingSpinner label="מחפש החלפות רלוונטיות לקיזוז..." /> : null}
+
+          {replacementsResult.replacements.length > 0 ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-950">
+              <div className="mb-3 font-semibold">🔄 נמצאו החלפות בקורס הזה</div>
+              <p className="mb-3">הוחלפת בקורס הזה בהחלפות הבאות:</p>
+              <ul className="space-y-2">
+                {replacementsResult.replacements.map((replacement) => (
+                  <li key={replacement.id}>
+                    • {replacement.replacementDate} - {replacement.replacingTeacherName} -{" "}
+                    {formatCurrency(replacement.totalAmount)}
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-4 font-semibold">
+                סה&quot;כ קיזוז מוצע: {formatCurrency(replacementsResult.totalSuggestedDeduction)}
+              </div>
+              <label className="mt-4 flex items-center gap-2 font-medium">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-slate-300"
+                  checked={applyAutomaticDeduction}
+                  onChange={(event) => {
+                    const checked = event.target.checked;
+                    setApplyAutomaticDeduction(checked);
+
+                    if (!checked) {
+                      setTeachingAmount("");
+                      setTravelAmount("");
+                    }
+                  }}
+                />
+                <span>לקזז אוטומטית מהסכום</span>
+              </label>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="grid gap-5 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="teachingAmount">הוראה - סכום</Label>
@@ -161,6 +417,11 @@ export default function CourseSubmitPage() {
             value={teachingAmount}
             onChange={(event) => setTeachingAmount(event.target.value)}
           />
+          {teachingWarning ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {teachingWarning.message}
+            </div>
+          ) : null}
         </div>
         <div className="space-y-2">
           <Label htmlFor="travelAmount">נסיעות - סכום</Label>
@@ -173,6 +434,11 @@ export default function CourseSubmitPage() {
             value={travelAmount}
             onChange={(event) => setTravelAmount(event.target.value)}
           />
+          {travelWarning ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {travelWarning.message}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -184,7 +450,10 @@ export default function CourseSubmitPage() {
         <Button variant="outline" onClick={() => router.push("/")}>
           חזרה ←
         </Button>
-        <Button onClick={() => void handleSubmit()} disabled={submitting || loading}>
+        <Button
+          onClick={() => void handleSubmit()}
+          disabled={submitting || loading || duplicateLoading || replacementsLoading || duplicateResult.isDuplicate}
+        >
           {submitting ? "שולח..." : "שליחת בקשה"}
         </Button>
       </div>
