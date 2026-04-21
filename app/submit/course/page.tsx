@@ -51,6 +51,7 @@ function getDeviationMessage(amountText: string, rate: number | null, directionL
 export default function CourseSubmitPage() {
   const router = useRouter();
   const { session, isReady } = useSessionGuard();
+  const currentSession = session;
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -92,7 +93,7 @@ export default function CourseSubmitPage() {
   );
 
   useEffect(() => {
-    if (!session) {
+    if (!currentSession) {
       return;
     }
 
@@ -103,7 +104,7 @@ export default function CourseSubmitPage() {
       setError(null);
 
       try {
-        const response = await fetch(`/api/monday/courses?teacherId=${session.teacherId}`);
+        const response = await fetch(`/api/monday/courses?teacherId=${currentSession.teacherId}`);
         if (!response.ok) {
           throw new Error("לא הצלחנו לטעון את רשימת הקורסים.");
         }
@@ -128,7 +129,7 @@ export default function CourseSubmitPage() {
     return () => {
       ignore = true;
     };
-  }, [session]);
+  }, [currentSession]);
 
   useEffect(() => {
     setTeachingAmount("");
@@ -140,7 +141,7 @@ export default function CourseSubmitPage() {
   }, [courseId]);
 
   useEffect(() => {
-    if (!session || !courseId) {
+    if (!currentSession || !courseId) {
       return;
     }
 
@@ -151,7 +152,7 @@ export default function CourseSubmitPage() {
 
       try {
         const response = await fetch(
-          `/api/monday/check-duplicate?teacherId=${session.teacherId}&courseId=${courseId}`,
+          `/api/monday/check-duplicate?teacherId=${currentSession.teacherId}&courseId=${courseId}`,
         );
 
         if (!response.ok) {
@@ -179,10 +180,10 @@ export default function CourseSubmitPage() {
     return () => {
       ignore = true;
     };
-  }, [courseId, session]);
+  }, [courseId, currentSession]);
 
   useEffect(() => {
-    if (!session || !courseId) {
+    if (!currentSession || !courseId) {
       return;
     }
 
@@ -193,7 +194,7 @@ export default function CourseSubmitPage() {
 
       try {
         const response = await fetch(
-          `/api/monday/replacements?teacherId=${session.teacherId}&courseId=${courseId}`,
+          `/api/monday/replacements?teacherId=${currentSession.teacherId}&courseId=${courseId}`,
         );
 
         if (!response.ok) {
@@ -223,7 +224,7 @@ export default function CourseSubmitPage() {
     return () => {
       ignore = true;
     };
-  }, [courseId, session]);
+  }, [courseId, currentSession]);
 
   useEffect(() => {
     if (!selectedCourse || !applyAutomaticDeduction || !replacementsResult.replacements.length) {
@@ -248,7 +249,7 @@ export default function CourseSubmitPage() {
     totalTravelDeduction,
   ]);
 
-  if (!isReady || !session) {
+  if (!isReady || !currentSession) {
     return null;
   }
 
@@ -262,9 +263,9 @@ export default function CourseSubmitPage() {
     setSubmitError(null);
 
     const payload: PaymentRequestPayload = {
-      submitterId: session.teacherId,
-      supplierId: session.supplierId,
-      teacherName: session.teacherName,
+      submitterId: currentSession.teacherId,
+      supplierId: currentSession.supplierId,
+      teacherName: currentSession.teacherName,
       paymentType: "course",
       courseId: Number(courseId),
       teachingAmount: Number(teachingAmount),

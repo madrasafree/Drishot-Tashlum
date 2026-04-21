@@ -15,6 +15,7 @@ import type { PaymentRequestPayload, PrivateLesson } from "@/lib/monday/types";
 export default function PrivateLessonsSubmitPage() {
   const router = useRouter();
   const { session, isReady } = useSessionGuard();
+  const currentSession = session;
   const [lessons, setLessons] = useState<PrivateLesson[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +26,7 @@ export default function PrivateLessonsSubmitPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!session) {
+    if (!currentSession) {
       return;
     }
 
@@ -36,7 +37,7 @@ export default function PrivateLessonsSubmitPage() {
       setError(null);
 
       try {
-        const response = await fetch(`/api/monday/private-lessons?teacherId=${session.teacherId}`);
+        const response = await fetch(`/api/monday/private-lessons?teacherId=${currentSession.teacherId}`);
         if (!response.ok) {
           throw new Error("לא הצלחנו לטעון את רשימת השיעורים הפרטיים.");
         }
@@ -61,9 +62,9 @@ export default function PrivateLessonsSubmitPage() {
     return () => {
       ignore = true;
     };
-  }, [session]);
+  }, [currentSession]);
 
-  if (!isReady || !session) {
+  if (!isReady || !currentSession) {
     return null;
   }
 
@@ -79,9 +80,9 @@ export default function PrivateLessonsSubmitPage() {
     setSubmitError(null);
 
     const payload: PaymentRequestPayload = {
-      submitterId: session.teacherId,
-      supplierId: session.supplierId,
-      teacherName: session.teacherName,
+      submitterId: currentSession.teacherId,
+      supplierId: currentSession.supplierId,
+      teacherName: currentSession.teacherName,
       paymentType: "private_lessons",
       privateLessonId: Number(privateLessonId),
       lessonsCount: Number(lessonsCount),

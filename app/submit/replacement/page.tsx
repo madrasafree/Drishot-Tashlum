@@ -53,6 +53,7 @@ function getDeviationMessage(amountText: string, rate: number | null, directionL
 export default function ReplacementSubmitPage() {
   const router = useRouter();
   const { session, isReady } = useSessionGuard();
+  const currentSession = session;
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [teachersLoading, setTeachersLoading] = useState(true);
   const [teachersError, setTeachersError] = useState<string | null>(null);
@@ -163,7 +164,7 @@ export default function ReplacementSubmitPage() {
     setSubmitError(null);
   }, [courseId]);
 
-  if (!isReady || !session) {
+  if (!isReady || !currentSession) {
     return null;
   }
 
@@ -177,9 +178,9 @@ export default function ReplacementSubmitPage() {
     setSubmitError(null);
 
     const payload: PaymentRequestPayload = {
-      submitterId: session.teacherId,
-      supplierId: session.supplierId,
-      teacherName: session.teacherName,
+      submitterId: currentSession.teacherId,
+      supplierId: currentSession.supplierId,
+      teacherName: currentSession.teacherName,
       paymentType: "replacement",
       replacedTeacherId: Number(replacedTeacherId),
       courseId: Number(courseId),

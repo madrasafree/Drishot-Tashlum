@@ -14,12 +14,13 @@ import type { PaymentRequestPayload } from "@/lib/monday/types";
 export default function OtherSubmitPage() {
   const router = useRouter();
   const { session, isReady } = useSessionGuard();
+  const currentSession = session;
   const [details, setDetails] = useState("");
   const [amount, setAmount] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  if (!isReady || !session) {
+  if (!isReady || !currentSession) {
     return null;
   }
 
@@ -33,9 +34,9 @@ export default function OtherSubmitPage() {
     setSubmitError(null);
 
     const payload: PaymentRequestPayload = {
-      submitterId: session.teacherId,
-      supplierId: session.supplierId,
-      teacherName: session.teacherName,
+      submitterId: currentSession.teacherId,
+      supplierId: currentSession.supplierId,
+      teacherName: currentSession.teacherName,
       paymentType: "other",
       details: details.trim(),
       amount: Number(amount),
