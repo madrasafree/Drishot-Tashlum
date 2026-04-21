@@ -340,7 +340,7 @@ const getCoursesForTeacherCached = unstable_cache(
       COURSE_COLUMNS.COURSE_STATE,
     ]);
 
-    const allowedStates = new Set([
+    const allowedStates = new Set<string>([
       COURSE_STATE_LABELS.RUNNING,
       COURSE_STATE_LABELS.FINISHED,
       COURSE_STATE_LABELS.UPCOMING,
@@ -381,7 +381,7 @@ export async function getPrivateLessonsForTeacher(teacherId: number): Promise<Pr
     PRIVATE_LESSON_COLUMNS.LESSONS_REMAINING,
   ]);
 
-  const allowedStatuses = new Set([
+  const allowedStatuses = new Set<string>([
     PRIVATE_LESSON_STATUS_LABELS.ASSIGNED,
     PRIVATE_LESSON_STATUS_LABELS.EMAIL_SENT,
     PRIVATE_LESSON_STATUS_LABELS.RUNNING,

@@ -97,6 +97,7 @@ export default function CourseSubmitPage() {
       return;
     }
 
+    const teacherId = currentSession.teacherId;
     let ignore = false;
 
     async function loadCourses() {
@@ -104,7 +105,7 @@ export default function CourseSubmitPage() {
       setError(null);
 
       try {
-        const response = await fetch(`/api/monday/courses?teacherId=${currentSession.teacherId}`);
+        const response = await fetch(`/api/monday/courses?teacherId=${teacherId}`);
         if (!response.ok) {
           throw new Error("לא הצלחנו לטעון את רשימת הקורסים.");
         }
@@ -145,6 +146,7 @@ export default function CourseSubmitPage() {
       return;
     }
 
+    const teacherId = currentSession.teacherId;
     let ignore = false;
 
     async function loadDuplicateCheck() {
@@ -152,7 +154,7 @@ export default function CourseSubmitPage() {
 
       try {
         const response = await fetch(
-          `/api/monday/check-duplicate?teacherId=${currentSession.teacherId}&courseId=${courseId}`,
+          `/api/monday/check-duplicate?teacherId=${teacherId}&courseId=${courseId}`,
         );
 
         if (!response.ok) {
@@ -187,6 +189,7 @@ export default function CourseSubmitPage() {
       return;
     }
 
+    const teacherId = currentSession.teacherId;
     let ignore = false;
 
     async function loadReplacements() {
@@ -194,7 +197,7 @@ export default function CourseSubmitPage() {
 
       try {
         const response = await fetch(
-          `/api/monday/replacements?teacherId=${currentSession.teacherId}&courseId=${courseId}`,
+          `/api/monday/replacements?teacherId=${teacherId}&courseId=${courseId}`,
         );
 
         if (!response.ok) {
@@ -259,13 +262,18 @@ export default function CourseSubmitPage() {
       return;
     }
 
+    if (!currentSession) {
+      return;
+    }
+
+    const sessionData = currentSession;
     setSubmitting(true);
     setSubmitError(null);
 
     const payload: PaymentRequestPayload = {
-      submitterId: currentSession.teacherId,
-      supplierId: currentSession.supplierId,
-      teacherName: currentSession.teacherName,
+      submitterId: sessionData.teacherId,
+      supplierId: sessionData.supplierId,
+      teacherName: sessionData.teacherName,
       paymentType: "course",
       courseId: Number(courseId),
       teachingAmount: Number(teachingAmount),

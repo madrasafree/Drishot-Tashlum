@@ -174,13 +174,18 @@ export default function ReplacementSubmitPage() {
       return;
     }
 
+    if (!currentSession) {
+      return;
+    }
+
+    const sessionData = currentSession;
     setSubmitting(true);
     setSubmitError(null);
 
     const payload: PaymentRequestPayload = {
-      submitterId: currentSession.teacherId,
-      supplierId: currentSession.supplierId,
-      teacherName: currentSession.teacherName,
+      submitterId: sessionData.teacherId,
+      supplierId: sessionData.supplierId,
+      teacherName: sessionData.teacherName,
       paymentType: "replacement",
       replacedTeacherId: Number(replacedTeacherId),
       courseId: Number(courseId),
