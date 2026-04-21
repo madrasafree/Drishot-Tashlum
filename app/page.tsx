@@ -1,5 +1,6 @@
 "use client";
 
+import type { Route } from "next";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BookOpen, CircleDashed, FileText, RefreshCcw, Target } from "lucide-react";
@@ -20,7 +21,7 @@ const paymentTypeOptions: Array<{
   value: PaymentType;
   label: string;
   icon: typeof BookOpen;
-  route: string;
+  route: Route;
 }> = [
   { value: "course", label: "קורס", icon: BookOpen, route: "/submit/course" },
   { value: "replacement", label: "החלפה", icon: RefreshCcw, route: "/submit/replacement" },
@@ -118,7 +119,8 @@ export default function HomePage() {
   }, [selectedTeacherId]);
 
   const selectedTeacher = teachers.find((teacher) => teacher.id === Number(selectedTeacherId));
-  const selectedRoute = paymentTypeOptions.find((option) => option.value === paymentType)?.route || "/";
+  const selectedRoute =
+    paymentTypeOptions.find((option) => option.value === paymentType)?.route || ("/" as Route);
   const isContinueDisabled =
     !selectedTeacher || !supplierCheck || supplierLoading || !!supplierError || supplierCheck?.blocked;
 
