@@ -41,6 +41,7 @@ export default function OtherSubmitPage() {
       submitterId: sessionData.teacherId,
       supplierId: sessionData.supplierId,
       teacherName: sessionData.teacherName,
+      previewMode: sessionData.previewMode,
       paymentType: "other",
       details: details.trim(),
       courseClaimType: "other",

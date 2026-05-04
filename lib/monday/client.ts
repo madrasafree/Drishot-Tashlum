@@ -1,5 +1,7 @@
 import { cache } from "react";
 
+import { getRuntimeEnv } from "@/lib/runtime-env";
+
 interface MondayGraphQLError {
   message: string;
   extensions?: {
@@ -27,8 +29,8 @@ export class MondayApiError extends Error {
 }
 
 function getMondayConfig() {
-  const token = process.env.MONDAY_API_TOKEN;
-  const apiUrl = process.env.MONDAY_API_URL || "https://api.monday.com/v2";
+  const token = getRuntimeEnv("MONDAY_API_TOKEN");
+  const apiUrl = getRuntimeEnv("MONDAY_API_URL") || "https://api.monday.com/v2";
 
   if (!token) {
     throw new MondayApiError(

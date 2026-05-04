@@ -85,6 +85,11 @@ export default function ReplacementSubmitPage() {
   }, [meetingsState, requestedMeetingsNumber]);
 
   useEffect(() => {
+    if (!currentSession) {
+      return;
+    }
+
+    const previewQuery = currentSession.previewMode ? "?preview=1" : "";
     let ignore = false;
 
     async function loadTeachers() {
@@ -92,7 +97,7 @@ export default function ReplacementSubmitPage() {
       setTeachersError(null);
 
       try {
-        const response = await fetch("/api/monday/teachers");
+        const response = await fetch(`/api/monday/teachers${previewQuery}`);
         if (!response.ok) {
           throw new Error("לא הצלחנו לטעון את רשימת המורים.");
         }
@@ -117,7 +122,7 @@ export default function ReplacementSubmitPage() {
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [currentSession]);
 
   useEffect(() => {
     setCourseId("");
@@ -130,6 +135,7 @@ export default function ReplacementSubmitPage() {
       return;
     }
 
+    const previewQuery = currentSession?.previewMode ? "&preview=1" : "";
     let ignore = false;
 
     async function loadCourses() {
@@ -138,7 +144,7 @@ export default function ReplacementSubmitPage() {
 
       try {
         const response = await fetch(
-          `/api/monday/courses?teacherId=${replacedTeacherId}&routeKey=replacement`,
+          `/api/monday/courses?teacherId=${replacedTeacherId}&routeKey=replacement${previewQuery}`,
         );
         if (!response.ok) {
           throw new Error("לא הצלחנו לטעון את קורסי המורה שהוחלף.");
@@ -164,7 +170,7 @@ export default function ReplacementSubmitPage() {
     return () => {
       ignore = true;
     };
-  }, [replacedTeacherId]);
+  }, [replacedTeacherId, currentSession?.previewMode]);
 
   useEffect(() => {
     setRequestedMeetings("");
@@ -176,13 +182,14 @@ export default function ReplacementSubmitPage() {
       return;
     }
 
+    const previewQuery = currentSession?.previewMode ? "&preview=1" : "";
     let ignore = false;
 
     async function loadMeetingsState() {
       setMeetingsLoading(true);
 
       try {
-        const response = await fetch(`/api/monday/course-meetings?courseId=${courseId}`);
+        const response = await fetch(`/api/monday/course-meetings?courseId=${courseId}${previewQuery}`);
         if (!response.ok) {
           throw new Error("לא הצלחנו לטעון את מצב המפגשים בקורס.");
         }
@@ -209,7 +216,7 @@ export default function ReplacementSubmitPage() {
     return () => {
       ignore = true;
     };
-  }, [courseId]);
+  }, [courseId, currentSession?.previewMode]);
 
   if (!isReady || !currentSession) {
     return null;
@@ -253,6 +260,7 @@ export default function ReplacementSubmitPage() {
       submitterId: sessionData.teacherId,
       supplierId: sessionData.supplierId,
       teacherName: sessionData.teacherName,
+      previewMode: sessionData.previewMode,
       paymentType: "replacement",
       replacedTeacherId: selectedTeacher.id,
       courseId: selectedCourse.id,

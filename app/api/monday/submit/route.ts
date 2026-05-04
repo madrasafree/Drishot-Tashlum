@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: validationError }, { status: 400 });
     }
 
-    if (isMondayPreviewMode()) {
+    if (payload.previewMode || isMondayPreviewMode()) {
       return NextResponse.json(createMockPaymentRequest(payload));
     }
 

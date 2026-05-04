@@ -31,6 +31,11 @@ const paymentTypeOptions: Array<{
 
 export default function HomePage() {
   const router = useRouter();
+  const [isPreviewPage] = useState(
+    () => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("preview") === "1",
+  );
+  const previewQuery = isPreviewPage ? "?preview=1" : "";
+  const previewContinuation = isPreviewPage ? "&preview=1" : "";
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [teachersLoading, setTeachersLoading] = useState(true);
   const [teachersError, setTeachersError] = useState<string | null>(null);
@@ -48,7 +53,7 @@ export default function HomePage() {
       setTeachersError(null);
 
       try {
-        const response = await fetch("/api/monday/teachers");
+        const response = await fetch(`/api/monday/teachers${previewQuery}`);
         if (!response.ok) {
           throw new Error("לא הצלחנו לטעון את רשימת המורים.");
         }
@@ -73,7 +78,7 @@ export default function HomePage() {
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [previewQuery]);
 
   useEffect(() => {
     let ignore = false;
@@ -89,7 +94,7 @@ export default function HomePage() {
       setSupplierError(null);
 
       try {
-        const response = await fetch(`/api/monday/supplier-check?teacherId=${selectedTeacherId}`);
+        const response = await fetch(`/api/monday/supplier-check?teacherId=${selectedTeacherId}${previewContinuation}`);
         if (!response.ok) {
           const errorPayload = (await response.json()) as { error?: string };
           throw new Error(errorPayload.error || "לא הצלחנו לבדוק את תיק הספק.");
@@ -116,7 +121,7 @@ export default function HomePage() {
     return () => {
       ignore = true;
     };
-  }, [selectedTeacherId]);
+  }, [selectedTeacherId, previewContinuation]);
 
   const selectedTeacher = teachers.find((teacher) => teacher.id === Number(selectedTeacherId));
   const selectedRoute =
@@ -127,8 +132,12 @@ export default function HomePage() {
     Boolean(selectedTeacher) && Boolean(supplierCheck) && !supplierLoading && !supplierError && !supplierCheck?.blocked;
 
   return (
-    <Card className="mx-auto max-w-3xl">
+    <Card className="mx-auto max-w-4xl overflow-hidden">
+      <div className="h-2 bg-[linear-gradient(90deg,var(--madrasa-blue),var(--madrasa-green))]" />
       <CardHeader className="space-y-4">
+        <div className="inline-flex w-fit rounded-full border border-[var(--madrasa-green)]/25 bg-lime-50 px-3 py-1 text-sm font-bold text-[var(--madrasa-green-dark)]">
+          מצב תצוגה מקדימה זמין גם בלי טוקן Monday
+        </div>
         <CardTitle>הגשת דרישת תשלום למורה</CardTitle>
         <div className="space-y-4 text-base text-slate-600">
           <p>מורה יקר, לפניך טופס הגשת דרישת תשלום.</p>
@@ -220,7 +229,7 @@ export default function HomePage() {
                 return (
                   <label
                     key={option.value}
-                    className="flex cursor-pointer items-start gap-4 rounded-xl border border-slate-200 bg-white p-4 transition hover:border-sky-300 hover:bg-sky-50/40"
+                    className="flex cursor-pointer items-start gap-4 rounded-2xl border border-sky-100 bg-white/85 p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--madrasa-blue)] hover:bg-sky-50/70"
                   >
                     <RadioGroupItem value={option.value} className="mt-1" />
                     <Icon className="mt-0.5 h-5 w-5 text-[var(--madrasa-blue-dark)]" />
@@ -246,6 +255,7 @@ export default function HomePage() {
                 supplierId: supplierCheck.supplierId,
                 supplierFileStatus: supplierCheck.teacherSupplierStatus,
                 paymentType,
+                previewMode: isPreviewPage,
               });
               router.push(selectedRoute);
             }}

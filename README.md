@@ -28,12 +28,12 @@
 npm install
 ```
 
-2. צור קובץ `.env.local` עם:
+2. צור קובץ `.env.local` כשרוצים להתחבר ל-Monday. בלי הקובץ הזה האפליקציה תעלה במצב preview עם נתוני דמה:
 
 ```env
 MONDAY_API_TOKEN=your_token_here
 MONDAY_API_URL=https://api.monday.com/v2
-MONDAY_PREVIEW_MODE=true
+MONDAY_PREVIEW_MODE=false
 ```
 
 3. הרץ סביבת פיתוח:
@@ -46,18 +46,18 @@ npm run dev
 
 ## Environment Variables
 
-- `MONDAY_API_TOKEN` חובה
+- `MONDAY_API_TOKEN` נדרש רק לחיבור אמיתי ל-Monday. אם הוא חסר, האפליקציה עוברת אוטומטית ל-preview.
 - `MONDAY_API_URL` אופציונלי. ברירת מחדל: `https://api.monday.com/v2`
-- `MONDAY_PREVIEW_MODE` אופציונלי. כאשר הערך `true`, האפליקציה משתמשת בנתוני mock ולא יוצרת פריטים אמיתיים.
+- `MONDAY_PREVIEW_MODE` אופציונלי. `true` מכריח preview, `false` מכריח חיבור אמיתי ודורש `MONDAY_API_TOKEN`.
 
-## פריסה ב-Vercel
+## פריסה ב-Cloudflare
 
 1. העלה את הריפו ל-GitHub.
-2. צור פרויקט חדש ב-Vercel וחבר את הריפו.
-3. הוסף ב-Vercel את משתני הסביבה:
+2. חבר את הריפו לפרויקט Cloudflare Workers / Pages שמריץ את פקודות הבילד מהריפו.
+3. הוסף ב-Cloudflare את משתני הסביבה לחיבור אמיתי:
    `MONDAY_API_TOKEN`
    `MONDAY_API_URL=https://api.monday.com/v2`
-4. בצע Deploy.
+4. לפני הוספת הטוקן אפשר לפרוס ולסייר באפליקציה במצב preview אוטומטי.
 
 ## מבנה עיקרי
 

@@ -76,6 +76,7 @@ export default function CourseSubmitPage() {
     }
 
     const teacherId = currentSession.teacherId;
+    const previewQuery = currentSession.previewMode ? "&preview=1" : "";
     let ignore = false;
 
     async function loadCourses() {
@@ -83,7 +84,7 @@ export default function CourseSubmitPage() {
       setError(null);
 
       try {
-        const response = await fetch(`/api/monday/courses?teacherId=${teacherId}&routeKey=course`);
+        const response = await fetch(`/api/monday/courses?teacherId=${teacherId}&routeKey=course${previewQuery}`);
         if (!response.ok) {
           throw new Error("לא הצלחנו לטעון את רשימת הקורסים.");
         }
@@ -120,13 +121,14 @@ export default function CourseSubmitPage() {
       return;
     }
 
+    const previewQuery = currentSession?.previewMode ? "&preview=1" : "";
     let ignore = false;
 
     async function loadMeetingsState() {
       setMeetingsLoading(true);
 
       try {
-        const response = await fetch(`/api/monday/course-meetings?courseId=${courseId}`);
+        const response = await fetch(`/api/monday/course-meetings?courseId=${courseId}${previewQuery}`);
         if (!response.ok) {
           throw new Error("לא הצלחנו לטעון את מצב המפגשים בקורס.");
         }
@@ -153,7 +155,7 @@ export default function CourseSubmitPage() {
     return () => {
       ignore = true;
     };
-  }, [courseId]);
+  }, [courseId, currentSession?.previewMode]);
 
   if (!isReady || !currentSession) {
     return null;
@@ -186,6 +188,7 @@ export default function CourseSubmitPage() {
       submitterId: sessionData.teacherId,
       supplierId: sessionData.supplierId,
       teacherName: sessionData.teacherName,
+      previewMode: sessionData.previewMode,
       paymentType: "course",
       courseId: selectedCourse.id,
       requestedMeetings: requestedMeetingsNumber,

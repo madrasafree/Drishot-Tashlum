@@ -14,6 +14,7 @@ import type {
   SupplierCheckResult,
   Teacher,
 } from "@/lib/monday/types";
+import { getRuntimeEnv } from "@/lib/runtime-env";
 
 const MOCK_TEACHERS: Teacher[] = [
   {
@@ -269,10 +270,17 @@ const MOCK_COURSE_MEETINGS_STATE: Record<number, CourseMeetingsState> = {
 };
 
 export function isMondayPreviewMode() {
-  return (
-    process.env.MONDAY_PREVIEW_MODE === "true" ||
-    (process.env.NODE_ENV !== "production" && !process.env.MONDAY_API_TOKEN)
-  );
+  const previewMode = getRuntimeEnv("MONDAY_PREVIEW_MODE");
+
+  if (previewMode === "false") {
+    return false;
+  }
+
+  return previewMode === "true" || !getRuntimeEnv("MONDAY_API_TOKEN");
+}
+
+export function isPreviewRequest(searchParams: URLSearchParams) {
+  return searchParams.get("preview") === "1" || isMondayPreviewMode();
 }
 
 export function getMockTeachers() {

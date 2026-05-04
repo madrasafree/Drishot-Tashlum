@@ -35,6 +35,7 @@ export default function PrivateLessonsSubmitPage() {
     }
 
     const teacherId = currentSession.teacherId;
+    const previewQuery = currentSession.previewMode ? "&preview=1" : "";
     let ignore = false;
 
     async function loadLessons() {
@@ -42,7 +43,7 @@ export default function PrivateLessonsSubmitPage() {
       setError(null);
 
       try {
-        const response = await fetch(`/api/monday/private-lessons?teacherId=${teacherId}`);
+        const response = await fetch(`/api/monday/private-lessons?teacherId=${teacherId}${previewQuery}`);
         if (!response.ok) {
           throw new Error("לא הצלחנו לטעון את רשימת השיעורים הפרטיים.");
         }
@@ -96,6 +97,7 @@ export default function PrivateLessonsSubmitPage() {
       submitterId: sessionData.teacherId,
       supplierId: sessionData.supplierId,
       teacherName: sessionData.teacherName,
+      previewMode: sessionData.previewMode,
       paymentType: "private_lessons",
       privateLessonId: selectedLesson.id,
       lessonsCount: requestedLessonsNumber,

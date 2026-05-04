@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { MondayApiError } from "@/lib/monday/client";
-import { getMockDuplicatePaymentRequest, isMondayPreviewMode } from "@/lib/monday/mock";
+import { getMockDuplicatePaymentRequest, isPreviewRequest } from "@/lib/monday/mock";
 import { checkDuplicatePaymentRequest } from "@/lib/monday/queries";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    if (isMondayPreviewMode()) {
+    if (isPreviewRequest(request.nextUrl.searchParams)) {
       return NextResponse.json(getMockDuplicatePaymentRequest(teacherId, courseId));
     }
 

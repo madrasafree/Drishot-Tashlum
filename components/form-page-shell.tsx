@@ -12,7 +12,8 @@ export function FormPageShell({
   children: ReactNode;
 }) {
   return (
-    <Card className="mx-auto max-w-3xl">
+    <Card className="mx-auto max-w-4xl overflow-hidden">
+      <div className="h-2 bg-[linear-gradient(90deg,var(--madrasa-blue),var(--madrasa-green))]" />
       <CardHeader className="pb-4">
         <CardTitle>{title}</CardTitle>
         <div className="space-y-3 text-base text-slate-600">{description}</div>

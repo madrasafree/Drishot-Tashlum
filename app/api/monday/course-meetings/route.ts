@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { MondayApiError } from "@/lib/monday/client";
-import { getMockCourseMeetingsState, isMondayPreviewMode } from "@/lib/monday/mock";
+import { getMockCourseMeetingsState, isPreviewRequest } from "@/lib/monday/mock";
 import { getCourseMeetingsState } from "@/lib/monday/queries";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    if (isMondayPreviewMode()) {
+    if (isPreviewRequest(request.nextUrl.searchParams)) {
       return NextResponse.json(getMockCourseMeetingsState(courseId));
     }
 

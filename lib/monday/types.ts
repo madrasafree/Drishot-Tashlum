@@ -179,6 +179,7 @@ export interface SupplierCheckResult {
 
 export interface PaymentRequestPayload extends PaymentRequestInput {
   teacherName: string;
+  previewMode?: boolean;
   deductionSummary?: {
     applied: boolean;
     replacements: Replacement[];

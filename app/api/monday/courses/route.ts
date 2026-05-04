@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { MondayApiError } from "@/lib/monday/client";
-import { getMockCoursesForTeacher, isMondayPreviewMode } from "@/lib/monday/mock";
+import { getMockCoursesForTeacher, isPreviewRequest } from "@/lib/monday/mock";
 import {
   getCoursesForTeacher,
   getEligibleCoursesForPayment,
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
     const routeConfig =
       routeKey === "course" || routeKey === "replacement" ? PAYMENT_ROUTE_CONFIGS[routeKey] : null;
 
-    if (isMondayPreviewMode()) {
+    if (isPreviewRequest(request.nextUrl.searchParams)) {
       const courses = getMockCoursesForTeacher(teacherId);
       return NextResponse.json(
         routeConfig?.allowedCourseStatuses

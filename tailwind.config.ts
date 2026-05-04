@@ -16,6 +16,10 @@ const config: Config = {
           DEFAULT: "var(--madrasa-blue)",
           foreground: "#ffffff",
         },
+        madrasa: {
+          blue: "var(--madrasa-blue)",
+          green: "var(--madrasa-green)",
+        },
         destructive: {
           DEFAULT: "var(--madrasa-red)",
           foreground: "#ffffff",
@@ -33,7 +37,7 @@ const config: Config = {
         xl: "1.2rem",
       },
       boxShadow: {
-        card: "0 10px 30px rgba(78, 173, 224, 0.08)",
+        card: "0 22px 70px rgba(46, 139, 184, 0.13)",
       },
     },
   },

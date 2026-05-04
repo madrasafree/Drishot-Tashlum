@@ -9,6 +9,7 @@ export interface SessionData {
   supplierId: number;
   supplierFileStatus: string;
   paymentType: PaymentType;
+  previewMode?: boolean;
 }
 
 export interface SubmissionSummary {

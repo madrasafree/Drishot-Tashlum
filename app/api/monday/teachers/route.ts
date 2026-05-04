@@ -1,15 +1,15 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 import { MondayApiError } from "@/lib/monday/client";
-import { getMockTeachers, isMondayPreviewMode } from "@/lib/monday/mock";
+import { getMockTeachers, isPreviewRequest } from "@/lib/monday/mock";
 import { getActiveTeachers } from "@/lib/monday/queries";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 10;
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    if (isMondayPreviewMode()) {
+    if (isPreviewRequest(request.nextUrl.searchParams)) {
       return NextResponse.json(getMockTeachers());
     }
 
