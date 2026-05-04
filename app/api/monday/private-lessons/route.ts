@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { MondayApiError } from "@/lib/monday/client";
+import { getMockPrivateLessonsForTeacher, isMondayPreviewMode } from "@/lib/monday/mock";
 import { getPrivateLessonsForTeacher } from "@/lib/monday/queries";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +15,10 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    if (isMondayPreviewMode()) {
+      return NextResponse.json(getMockPrivateLessonsForTeacher(teacherId));
+    }
+
     const lessons = await getPrivateLessonsForTeacher(teacherId);
     return NextResponse.json(lessons);
   } catch (error) {

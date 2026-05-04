@@ -5,18 +5,17 @@ import { useState } from "react";
 
 import { FormPageShell } from "@/components/form-page-shell";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useSessionGuard } from "@/hooks/use-session-guard";
 import type { PaymentRequestPayload } from "@/lib/monday/types";
+import { saveSubmissionSummary } from "@/lib/session";
 
 export default function OtherSubmitPage() {
   const router = useRouter();
   const { session, isReady } = useSessionGuard();
   const currentSession = session;
   const [details, setDetails] = useState("");
-  const [amount, setAmount] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -25,12 +24,12 @@ export default function OtherSubmitPage() {
   }
 
   async function handleSubmit() {
-    if (!details.trim() || !amount) {
-      setSubmitError("יש למלא את כל שדות החובה לפני השליחה.");
+    if (!currentSession) {
       return;
     }
 
-    if (!currentSession) {
+    if (!details.trim()) {
+      setSubmitError("יש למלא פירוט לפני השליחה.");
       return;
     }
 
@@ -44,7 +43,10 @@ export default function OtherSubmitPage() {
       teacherName: sessionData.teacherName,
       paymentType: "other",
       details: details.trim(),
-      amount: Number(amount),
+      courseClaimType: "other",
+      requiresManualReview: true,
+      manualReviewState: "needs_review",
+      reviewReason: "דרישה מסוג אחר דורשת בדיקה ידנית",
     };
 
     try {
@@ -61,6 +63,12 @@ export default function OtherSubmitPage() {
         throw new Error(errorPayload.error || "אירעה שגיאה בשליחת הדרישה. נסה שוב או פנה למשרד.");
       }
 
+      saveSubmissionSummary({
+        paymentTypeLabel: "אחר",
+        subject: details.trim().slice(0, 40),
+        requiresManualReview: true,
+        reviewReason: "הדרישה תיבדק על ידי הצוות.",
+      });
       router.push("/success");
     } catch (requestError) {
       setSubmitError(
@@ -78,8 +86,8 @@ export default function OtherSubmitPage() {
       title="דרישת תשלום למורה"
       description={
         <>
-          <p>נא לפרט עבור מה הדרישה ומה הסכום לתשלום סה&quot;כ.</p>
-          <p>דרישות תשלום עבור הכנה, הכשרה, הדרכה וכו&apos; יטופלו בכפוף לאישור המלווה הפדגוגי שלך.</p>
+          <p>נא לפרט עבור מה הדרישה. דרישות מסוג אחר נשלחות לבדיקה ידנית של הצוות.</p>
+          <p>אין צורך להזין נתוני תשלום במסך הזה; אם יידרש בירור נוסף, המשרד יפנה אליך.</p>
         </>
       }
     >
@@ -88,18 +96,17 @@ export default function OtherSubmitPage() {
         <Textarea id="details" rows={4} value={details} onChange={(event) => setDetails(event.target.value)} />
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="amount">סכום</Label>
-        <Input
-          id="amount"
-          type="number"
-          min={0}
-          max={50000}
-          placeholder="0"
-          value={amount}
-          onChange={(event) => setAmount(event.target.value)}
-        />
-      </div>
+      {details.trim() ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-950">
+          <h2 className="mb-3 text-base font-semibold">סיכום דרישה</h2>
+          <div className="space-y-1">
+            <p>מגיש/ה: {currentSession.teacherName}</p>
+            <p>סוג דרישה: אחר</p>
+            <p>פירוט: {details.trim()}</p>
+            <p className="font-semibold">סטטוס: תישלח לבדיקה ידנית</p>
+          </div>
+        </div>
+      ) : null}
 
       {submitError ? (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{submitError}</div>
@@ -107,10 +114,10 @@ export default function OtherSubmitPage() {
 
       <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
         <Button variant="outline" onClick={() => router.push("/")}>
-          חזרה ←
+          חזרה
         </Button>
         <Button onClick={() => void handleSubmit()} disabled={submitting}>
-          {submitting ? "שולח..." : "שליחת בקשה"}
+          {submitting ? "שולח..." : "שליחה לבדיקה"}
         </Button>
       </div>
     </FormPageShell>

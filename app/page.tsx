@@ -123,6 +123,8 @@ export default function HomePage() {
     paymentTypeOptions.find((option) => option.value === paymentType)?.route || ("/" as Route);
   const isContinueDisabled =
     !selectedTeacher || !supplierCheck || supplierLoading || !!supplierError || supplierCheck?.blocked;
+  const canChoosePaymentType =
+    Boolean(selectedTeacher) && Boolean(supplierCheck) && !supplierLoading && !supplierError && !supplierCheck?.blocked;
 
   return (
     <Card className="mx-auto max-w-3xl">
@@ -206,24 +208,29 @@ export default function HomePage() {
           </section>
         ) : null}
 
-        <section className="space-y-4">
-          <Label>בחירת סוג תשלום</Label>
-          <RadioGroup value={paymentType} onValueChange={(value) => setPaymentType(value as PaymentType)}>
-            {paymentTypeOptions.map((option) => {
-              const Icon = option.icon;
-              return (
-                <label
-                  key={option.value}
-                  className="flex cursor-pointer items-start gap-4 rounded-xl border border-slate-200 bg-white p-4 transition hover:border-sky-300 hover:bg-sky-50/40"
-                >
-                  <RadioGroupItem value={option.value} className="mt-1" />
-                  <Icon className="mt-0.5 h-5 w-5 text-[var(--madrasa-blue-dark)]" />
-                  <div className="font-medium text-slate-900">{option.label}</div>
-                </label>
-              );
-            })}
-          </RadioGroup>
-        </section>
+        {canChoosePaymentType ? (
+          <section className="space-y-4">
+            <div>
+              <Label>בחירת סוג דרישה</Label>
+              <p className="mt-1 text-sm text-slate-500">לאחר בחירת המסלול נמשיך לטופס מפגשים מתאים.</p>
+            </div>
+            <RadioGroup value={paymentType} onValueChange={(value) => setPaymentType(value as PaymentType)}>
+              {paymentTypeOptions.map((option) => {
+                const Icon = option.icon;
+                return (
+                  <label
+                    key={option.value}
+                    className="flex cursor-pointer items-start gap-4 rounded-xl border border-slate-200 bg-white p-4 transition hover:border-sky-300 hover:bg-sky-50/40"
+                  >
+                    <RadioGroupItem value={option.value} className="mt-1" />
+                    <Icon className="mt-0.5 h-5 w-5 text-[var(--madrasa-blue-dark)]" />
+                    <div className="font-medium text-slate-900">{option.label}</div>
+                  </label>
+                );
+              })}
+            </RadioGroup>
+          </section>
+        ) : null}
 
         <div className="flex justify-end">
           <Button

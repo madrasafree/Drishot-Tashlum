@@ -3,10 +3,13 @@ import { unstable_cache } from "next/cache";
 import {
   ACTIVE_PAYMENT_STATUS_INDEXES,
   BOARD_IDS,
+  COURSE_CLAIM_TYPE_LABELS,
   COURSE_COLUMNS,
   COURSE_STATE_LABELS,
   DEFAULT_STATUS_LABEL,
+  MANUAL_REVIEW_LABELS,
   PAYMENT_REQUEST_COLUMNS,
+  PAYMENT_REQUEST_MEETINGS_COLUMNS,
   PAYMENT_REQUEST_STATUS_LABELS,
   PAYMENT_TYPE_INDEXES,
   PAYMENT_TYPE_LABELS,
@@ -16,10 +19,18 @@ import {
   TEACHER_COLUMNS,
 } from "@/lib/monday/constants";
 import { fetchMutation, fetchQuery } from "@/lib/monday/client";
+import {
+  calculateInternalAmountsForCourseClaim,
+  validateMeetingsSubmission,
+} from "@/lib/payment/meetings";
 import { getTodayInIsrael } from "@/lib/utils";
 import type {
   Course,
+  CourseClaimType,
+  CourseMeetingClaim,
+  CourseMeetingsState,
   DuplicatePaymentRequestResult,
+  ManualReviewState,
   PaymentRequestPayload,
   PaymentType,
   PrivateLesson,
@@ -69,12 +80,6 @@ type CreateItemResponse = {
   create_item: {
     id: string;
     name: string;
-  };
-};
-
-type CreateUpdateResponse = {
-  create_update: {
-    id: string;
   };
 };
 
@@ -142,22 +147,6 @@ function parseNumber(value: ColumnValueResponse | undefined) {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
-function formatUpdateMoney(value: number) {
-  return `${new Intl.NumberFormat("he-IL", { maximumFractionDigits: 0 }).format(value)} ש"ח`;
-}
-
-function buildReplacementUpdateBody(summary: NonNullable<PaymentRequestPayload["deductionSummary"]>) {
-  const lines = summary.replacements.map(
-    (replacement) =>
-      `- ${replacement.replacementDate} - ${replacement.replacingTeacherName} - ${formatUpdateMoney(replacement.totalAmount)}`,
-  );
-
-  return [
-    `קוזזו ${formatUpdateMoney(summary.totalSuggestedDeduction)} בגין ההחלפות הבאות:`,
-    ...lines,
-  ].join("\n");
-}
-
 function parseTeacher(item: MondayItemResponse): Teacher {
   const supplierRelation = getColumn(item, TEACHER_COLUMNS.SUPPLIER_RELATION);
 
@@ -201,6 +190,7 @@ function parseCourse(item: MondayItemResponse): Course {
     endDate: getColumn(item, COURSE_COLUMNS.END_DATE)?.date || null,
     teachingRate: parseNumber(getColumn(item, COURSE_COLUMNS.TEACHING_RATE)),
     travelRate: parseNumber(getColumn(item, COURSE_COLUMNS.TRAVEL_RATE)),
+    lessonsCount: parseNumber(getColumn(item, COURSE_COLUMNS.LESSONS_COUNT)),
     state: getColumn(item, COURSE_COLUMNS.COURSE_STATE)?.label || getColumn(item, COURSE_COLUMNS.COURSE_STATE)?.text || "",
   };
 }
@@ -254,6 +244,7 @@ export async function getCourseById(courseId: number): Promise<Course | null> {
     COURSE_COLUMNS.END_DATE,
     COURSE_COLUMNS.TEACHING_RATE,
     COURSE_COLUMNS.TRAVEL_RATE,
+    COURSE_COLUMNS.LESSONS_COUNT,
     COURSE_COLUMNS.COURSE_STATE,
   ]);
 
@@ -284,7 +275,7 @@ export async function getActiveTeachers(): Promise<Teacher[]> {
             rules: [
               {
                 column_id: "${TEACHER_COLUMNS.ACTIVE_STATUS}"
-                compare_value: ["פעיל"]
+                compare_value: [1]
                 operator: any_of
               }
             ]
@@ -337,6 +328,7 @@ const getCoursesForTeacherCached = unstable_cache(
       COURSE_COLUMNS.END_DATE,
       COURSE_COLUMNS.TEACHING_RATE,
       COURSE_COLUMNS.TRAVEL_RATE,
+      COURSE_COLUMNS.LESSONS_COUNT,
       COURSE_COLUMNS.COURSE_STATE,
     ]);
 
@@ -357,6 +349,21 @@ const getCoursesForTeacherCached = unstable_cache(
 
 export async function getCoursesForTeacher(teacherId: number): Promise<Course[]> {
   return getCoursesForTeacherCached(teacherId);
+}
+
+function filterCoursesByStates(courses: Course[], allowedStates: readonly string[]) {
+  const allowed = new Set(allowedStates);
+  return courses.filter((course) => allowed.has(course.state));
+}
+
+export async function getEligibleCoursesForPayment(teacherId: number): Promise<Course[]> {
+  const courses = await getCoursesForTeacher(teacherId);
+  return filterCoursesByStates(courses, [COURSE_STATE_LABELS.FINISHED]);
+}
+
+export async function getEligibleCoursesForReplacement(teacherId: number): Promise<Course[]> {
+  const courses = await getCoursesForTeacher(teacherId);
+  return filterCoursesByStates(courses, [COURSE_STATE_LABELS.RUNNING, COURSE_STATE_LABELS.FINISHED]);
 }
 
 export async function getAllActiveTeachers(): Promise<TeacherSimple[]> {
@@ -548,6 +555,113 @@ export async function getReplacementLookupResult(
   };
 }
 
+export async function getCourseMeetingsState(courseId: number): Promise<CourseMeetingsState> {
+  const course = await getCourseById(courseId);
+
+  if (!course) {
+    throw new Error(`Course ${courseId} was not found.`);
+  }
+
+  const requestedMeetingsColumnId = PAYMENT_REQUEST_MEETINGS_COLUMNS.REQUESTED_MEETINGS;
+  const claimColumnIds = [
+    PAYMENT_REQUEST_COLUMNS.SUBMITTER,
+    PAYMENT_REQUEST_COLUMNS.PAYMENT_TYPE,
+    PAYMENT_REQUEST_COLUMNS.STATUS,
+    ...(requestedMeetingsColumnId ? [requestedMeetingsColumnId] : []),
+  ];
+
+  const query = `
+    query GetCourseMeetingsState($columnIds: [String!]) {
+      boards(ids: [${BOARD_IDS.PAYMENT_REQUESTS}]) {
+        items_page(
+          limit: 100
+          query_params: {
+            operator: and
+            rules: [
+              {
+                column_id: "${PAYMENT_REQUEST_COLUMNS.COURSE}"
+                compare_value: [${courseId}]
+                operator: any_of
+              }
+              {
+                column_id: "${PAYMENT_REQUEST_COLUMNS.STATUS}"
+                compare_value: [${ACTIVE_PAYMENT_STATUS_INDEXES.join(",")}]
+                operator: any_of
+              }
+            ]
+          }
+        ) {
+          items {
+            id
+            name
+            column_values(ids: $columnIds) {
+              ${COLUMN_VALUE_FIELDS}
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const response = await fetchQuery<BoardsItemsResponse>(query, { columnIds: claimColumnIds });
+  const items = response.boards[0]?.items_page.items || [];
+
+  const existingClaims: CourseMeetingClaim[] = items.map((item) => {
+    const submitter = getColumn(item, PAYMENT_REQUEST_COLUMNS.SUBMITTER);
+    const meetingsCount = requestedMeetingsColumnId
+      ? parseNumber(getColumn(item, requestedMeetingsColumnId))
+      : null;
+
+    return {
+      itemId: Number(item.id),
+      teacherId: submitter?.linked_items?.[0]?.id ? Number(submitter.linked_items[0].id) : null,
+      teacherName: submitter?.linked_items?.[0]?.name || submitter?.display_value || "מורה",
+      requestType:
+        getColumn(item, PAYMENT_REQUEST_COLUMNS.PAYMENT_TYPE)?.label ||
+        getColumn(item, PAYMENT_REQUEST_COLUMNS.PAYMENT_TYPE)?.text ||
+        "",
+      meetingsCount,
+      statusLabel:
+        getColumn(item, PAYMENT_REQUEST_COLUMNS.STATUS)?.label ||
+        getColumn(item, PAYMENT_REQUEST_COLUMNS.STATUS)?.text ||
+        "",
+      isLegacyWithoutMeetings: meetingsCount === null,
+    };
+  });
+
+  const submittedMeetingsTotal = existingClaims.reduce(
+    (sum, claim) => sum + (claim.meetingsCount ?? 0),
+    0,
+  );
+  const hasLegacyClaimsWithoutMeetings = existingClaims.some((claim) => claim.isLegacyWithoutMeetings);
+  const remainingMeetings =
+    course.lessonsCount === null ? null : Math.max(0, course.lessonsCount - submittedMeetingsTotal);
+  const warnings: string[] = [];
+
+  if (course.lessonsCount === null) {
+    warnings.push("חסר מספר מפגשים בקורס.");
+  }
+
+  if (!requestedMeetingsColumnId && existingClaims.length) {
+    warnings.push("חסר Column ID לשדה מספר מפגשים בדרישה; דרישות קיימות יסומנו כדרישות ישנות.");
+  }
+
+  if (hasLegacyClaimsWithoutMeetings) {
+    warnings.push("קיימת דרישה ישנה על הקורס ללא מספר מפגשים.");
+  }
+
+  return {
+    courseId,
+    courseName: course.name,
+    totalMeetings: course.lessonsCount,
+    existingClaims,
+    submittedMeetingsTotal,
+    remainingMeetings,
+    hasLegacyClaimsWithoutMeetings,
+    warnings,
+  };
+}
+
 function getPaymentTypeLabel(paymentType: PaymentType) {
   switch (paymentType) {
     case "course":
@@ -563,71 +677,257 @@ function getPaymentTypeLabel(paymentType: PaymentType) {
   }
 }
 
-export async function createPaymentRequestUpdate(itemId: number, body: string): Promise<void> {
-  const mutation = `
-    mutation CreatePaymentRequestUpdate($itemId: ID!, $body: String!) {
-      create_update(item_id: $itemId, body: $body) {
-        id
-      }
-    }
-  `;
-
-  await fetchMutation<CreateUpdateResponse>(mutation, {
-    itemId,
-    body,
-  });
+export class MondayConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MondayConfigurationError";
+  }
 }
 
-export async function createPaymentRequest(data: PaymentRequestPayload): Promise<{ itemId: number }> {
+function getRequiredMeetingsColumnId(
+  columnKey: keyof typeof PAYMENT_REQUEST_MEETINGS_COLUMNS,
+  mondayColumnName: string,
+) {
+  const columnId = PAYMENT_REQUEST_MEETINGS_COLUMNS[columnKey];
+
+  if (!columnId) {
+    throw new MondayConfigurationError(
+      `Missing Monday column ID for "${mondayColumnName}". Create the column in board ${BOARD_IDS.PAYMENT_REQUESTS} and update PAYMENT_REQUEST_MEETINGS_COLUMNS.${columnKey}.`,
+    );
+  }
+
+  return columnId;
+}
+
+function setConfiguredMeetingColumn(
+  columnValues: Record<string, unknown>,
+  columnKey: keyof typeof PAYMENT_REQUEST_MEETINGS_COLUMNS,
+  mondayColumnName: string,
+  value: unknown,
+) {
+  columnValues[getRequiredMeetingsColumnId(columnKey, mondayColumnName)] = value;
+}
+
+function getCourseClaimTypeLabel(claimType: CourseClaimType) {
+  switch (claimType) {
+    case "full_course":
+      return COURSE_CLAIM_TYPE_LABELS.FULL_COURSE;
+    case "partial_course":
+      return COURSE_CLAIM_TYPE_LABELS.PARTIAL_COURSE;
+    case "replacement":
+      return COURSE_CLAIM_TYPE_LABELS.REPLACEMENT;
+    case "correction":
+      return COURSE_CLAIM_TYPE_LABELS.CORRECTION;
+    case "private_lessons":
+      return COURSE_CLAIM_TYPE_LABELS.PRIVATE_LESSONS;
+    case "other":
+    default:
+      return COURSE_CLAIM_TYPE_LABELS.OTHER;
+  }
+}
+
+function getManualReviewLabel(reviewState: ManualReviewState) {
+  switch (reviewState) {
+    case "ok":
+      return MANUAL_REVIEW_LABELS.OK;
+    case "legacy_without_meetings":
+      return MANUAL_REVIEW_LABELS.LEGACY_WITHOUT_MEETINGS;
+    case "meetings_over_limit":
+      return MANUAL_REVIEW_LABELS.MEETINGS_OVER_LIMIT;
+    case "needs_review":
+    default:
+      return MANUAL_REVIEW_LABELS.NEEDS_REVIEW;
+  }
+}
+
+function mergeReviewReasons(...reasons: Array<string | null | undefined>) {
+  return reasons
+    .map((reason) => reason?.trim())
+    .filter((reason): reason is string => Boolean(reason))
+    .join(" | ");
+}
+
+function getManualStateFromReason(reason: string | null): ManualReviewState {
+  if (!reason) {
+    return "ok";
+  }
+
+  if (reason.includes("דרישה ישנה")) {
+    return "legacy_without_meetings";
+  }
+
+  if (reason.includes("מתוך")) {
+    return "meetings_over_limit";
+  }
+
+  return "needs_review";
+}
+
+export async function submitPaymentRequest(data: PaymentRequestPayload): Promise<{ itemId: number }> {
   const today = getTodayInIsrael();
   const paymentLabel = getPaymentTypeLabel(data.paymentType);
 
   let subject = "";
+  let teachingAmount = 0;
+  let travelAmount = 0;
+  const totalTransfer = 0;
+  let requestedMeetings = data.requestedMeetings ?? data.lessonsCount ?? null;
+  let totalMeetingsSnapshot = data.totalMeetingsSnapshot ?? null;
+  let courseClaimType: CourseClaimType = data.courseClaimType ?? "other";
+  let requiresManualReview = data.requiresManualReview ?? false;
+  let reviewReason = data.reviewReason ?? null;
+  let manualReviewState: ManualReviewState = data.manualReviewState ?? "ok";
+
   if (data.paymentType === "course" || data.paymentType === "replacement") {
     const course = data.courseId ? await getCourseById(data.courseId) : null;
+    const courseMeetings = course?.lessonsCount ?? null;
     subject = course?.name || "קורס";
+    courseClaimType =
+      data.courseClaimType ??
+      (data.paymentType === "replacement"
+        ? "replacement"
+        : requestedMeetings !== null && courseMeetings !== null && requestedMeetings >= courseMeetings
+          ? "full_course"
+          : "partial_course");
+    totalMeetingsSnapshot = courseMeetings ?? totalMeetingsSnapshot;
+
+    if (requestedMeetings === null) {
+      requiresManualReview = true;
+      reviewReason = mergeReviewReasons(reviewReason, "חסר מספר מפגשים בדרישה");
+      manualReviewState = "needs_review";
+    }
+
+    if (data.courseId && requestedMeetings !== null) {
+      try {
+        const meetingsState = await getCourseMeetingsState(data.courseId);
+        const validation = validateMeetingsSubmission({
+          totalMeetings: meetingsState.totalMeetings,
+          alreadySubmittedMeetings: meetingsState.submittedMeetingsTotal,
+          requestedMeetings,
+          hasLegacyClaimsWithoutMeetings: meetingsState.hasLegacyClaimsWithoutMeetings,
+        });
+
+        if (validation.requiresManualReview || !validation.isValid) {
+          requiresManualReview = true;
+          reviewReason = mergeReviewReasons(reviewReason, validation.reviewReason);
+          manualReviewState = getManualStateFromReason(validation.reviewReason);
+        }
+      } catch (error) {
+        requiresManualReview = true;
+        reviewReason = mergeReviewReasons(
+          reviewReason,
+          error instanceof Error ? error.message : "לא ניתן לבדוק את מצב המפגשים בקורס",
+        );
+        manualReviewState = "needs_review";
+      }
+    }
+
+    if (course && requestedMeetings !== null) {
+      try {
+        const amounts = calculateInternalAmountsForCourseClaim({
+          courseTeachingRate: course.teachingRate,
+          courseTravelRate: course.travelRate,
+          totalMeetings: course.lessonsCount,
+          requestedMeetings,
+        });
+        teachingAmount = amounts.teachingAmount;
+        travelAmount = amounts.travelAmount;
+      } catch (error) {
+        requiresManualReview = true;
+        reviewReason = mergeReviewReasons(
+          reviewReason,
+          error instanceof Error ? error.message : "חסרים נתונים לחישוב סכום פנימי",
+        );
+        manualReviewState = "needs_review";
+      }
+    }
   } else if (data.paymentType === "private_lessons") {
     const privateLesson = data.privateLessonId ? await getPrivateLessonById(data.privateLessonId) : null;
     subject = privateLesson?.studentName || "שיעור פרטי";
+    requestedMeetings = data.lessonsCount ?? data.requestedMeetings ?? null;
+    courseClaimType = "private_lessons";
+    requiresManualReview = true;
+    manualReviewState = "needs_review";
+    reviewReason = mergeReviewReasons(
+      reviewReason,
+      "חסר מנגנון חישוב תעריף אמין לשיעורים פרטיים; הדרישה נשלחה לבדיקה ידנית",
+    );
   } else {
     subject = (data.details || "אחר").trim().slice(0, 30);
+    courseClaimType = "other";
+    requiresManualReview = true;
+    manualReviewState = "needs_review";
+    reviewReason = mergeReviewReasons(reviewReason, "דרישה מסוג אחר דורשת בדיקה ידנית");
   }
 
   const itemName = `${paymentLabel} - ${data.teacherName} - ${subject}`;
+  const statusLabel = requiresManualReview
+    ? PAYMENT_REQUEST_STATUS_LABELS.WAITING_CLARIFICATION
+    : DEFAULT_STATUS_LABEL;
+
+  if (requiresManualReview && manualReviewState === "ok") {
+    manualReviewState = getManualStateFromReason(reviewReason) || "needs_review";
+  }
 
   const columnValues: Record<string, unknown> = {
     [PAYMENT_REQUEST_COLUMNS.SUBMITTER]: { item_ids: [data.submitterId] },
     [PAYMENT_REQUEST_COLUMNS.SUPPLIER]: { item_ids: [data.supplierId] },
     [PAYMENT_REQUEST_COLUMNS.PAYMENT_TYPE]: { label: paymentLabel },
-    [PAYMENT_REQUEST_COLUMNS.STATUS]: { label: DEFAULT_STATUS_LABEL },
+    [PAYMENT_REQUEST_COLUMNS.STATUS]: { label: statusLabel },
     [PAYMENT_REQUEST_COLUMNS.SUBMIT_DATE]: { date: today },
     [PAYMENT_REQUEST_COLUMNS.ITEM_NAME]: itemName,
   };
 
   if (data.paymentType === "course") {
     columnValues[PAYMENT_REQUEST_COLUMNS.COURSE] = { item_ids: [data.courseId] };
-    columnValues[PAYMENT_REQUEST_COLUMNS.TEACHING_AMOUNT] = data.teachingAmount;
-    columnValues[PAYMENT_REQUEST_COLUMNS.TRAVEL_AMOUNT] = data.travelAmount ?? 0;
+    columnValues[PAYMENT_REQUEST_COLUMNS.TEACHING_AMOUNT] = teachingAmount;
+    columnValues[PAYMENT_REQUEST_COLUMNS.TRAVEL_AMOUNT] = travelAmount;
+    setConfiguredMeetingColumn(columnValues, "REQUESTED_MEETINGS", "מספר מפגשים בדרישה", requestedMeetings);
+    setConfiguredMeetingColumn(
+      columnValues,
+      "COURSE_TOTAL_MEETINGS_SNAPSHOT",
+      "מספר מפגשים בקורס בעת ההגשה",
+      totalMeetingsSnapshot ?? "",
+    );
   }
 
   if (data.paymentType === "replacement") {
     columnValues[PAYMENT_REQUEST_COLUMNS.COURSE] = { item_ids: [data.courseId] };
     columnValues[PAYMENT_REQUEST_COLUMNS.REPLACED_TEACHER] = { item_ids: [data.replacedTeacherId] };
     columnValues[PAYMENT_REQUEST_COLUMNS.REPLACEMENT_DATE] = data.replacementDate;
-    columnValues[PAYMENT_REQUEST_COLUMNS.TEACHING_AMOUNT] = data.teachingAmount;
-    columnValues[PAYMENT_REQUEST_COLUMNS.TRAVEL_AMOUNT] = data.travelAmount ?? 0;
+    if (data.details) {
+      columnValues[PAYMENT_REQUEST_COLUMNS.DETAILS] = data.details;
+    }
+    columnValues[PAYMENT_REQUEST_COLUMNS.TEACHING_AMOUNT] = teachingAmount;
+    columnValues[PAYMENT_REQUEST_COLUMNS.TRAVEL_AMOUNT] = travelAmount;
+    setConfiguredMeetingColumn(columnValues, "REQUESTED_MEETINGS", "מספר מפגשים בדרישה", requestedMeetings);
+    setConfiguredMeetingColumn(
+      columnValues,
+      "COURSE_TOTAL_MEETINGS_SNAPSHOT",
+      "מספר מפגשים בקורס בעת ההגשה",
+      totalMeetingsSnapshot ?? "",
+    );
   }
 
   if (data.paymentType === "other") {
     columnValues[PAYMENT_REQUEST_COLUMNS.DETAILS] = data.details;
-    columnValues[PAYMENT_REQUEST_COLUMNS.TEACHING_AMOUNT] = data.amount;
+    columnValues[PAYMENT_REQUEST_COLUMNS.TEACHING_AMOUNT] = 0;
   }
 
   if (data.paymentType === "private_lessons") {
     columnValues[PAYMENT_REQUEST_COLUMNS.PRIVATE_LESSONS] = { item_ids: [data.privateLessonId] };
-    columnValues[PAYMENT_REQUEST_COLUMNS.LESSONS_COUNT] = data.lessonsCount;
-    columnValues[PAYMENT_REQUEST_COLUMNS.TOTAL_TRANSFER] = data.totalTransfer;
+    columnValues[PAYMENT_REQUEST_COLUMNS.LESSONS_COUNT] = data.lessonsCount ?? data.requestedMeetings;
+    columnValues[PAYMENT_REQUEST_COLUMNS.TOTAL_TRANSFER] = totalTransfer;
+    setConfiguredMeetingColumn(columnValues, "REQUESTED_MEETINGS", "מספר מפגשים בדרישה", requestedMeetings);
   }
+
+  setConfiguredMeetingColumn(columnValues, "COURSE_CLAIM_TYPE", "סוג דרישת קורס", {
+    label: getCourseClaimTypeLabel(courseClaimType),
+  });
+  setConfiguredMeetingColumn(columnValues, "MANUAL_REVIEW", "דורש בדיקה ידנית", {
+    label: getManualReviewLabel(manualReviewState),
+  });
+  setConfiguredMeetingColumn(columnValues, "REVIEW_REASON", "סיבת בדיקה", reviewReason || "");
 
   const mutation = `
     mutation CreatePaymentRequest(
@@ -654,15 +954,11 @@ export async function createPaymentRequest(data: PaymentRequestPayload): Promise
 
   const itemId = Number(response.create_item.id);
 
-  if (data.deductionSummary?.applied && data.deductionSummary.replacements.length) {
-    try {
-      await createPaymentRequestUpdate(itemId, buildReplacementUpdateBody(data.deductionSummary));
-    } catch (error) {
-      console.warn("[Monday API] Failed to create payment request update", error);
-    }
-  }
-
   return {
     itemId,
   };
+}
+
+export async function createPaymentRequest(data: PaymentRequestPayload): Promise<{ itemId: number }> {
+  return submitPaymentRequest(data);
 }

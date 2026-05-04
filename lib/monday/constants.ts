@@ -25,12 +25,37 @@ export const PAYMENT_REQUEST_COLUMNS = {
   TOTAL_TRANSFER: "numeric_mkptwqxq",
 } as const;
 
+export const PAYMENT_REQUEST_MEETINGS_COLUMNS = {
+  // TODO: replace null values with the Monday column IDs after creating these columns.
+  REQUESTED_MEETINGS: null,
+  COURSE_TOTAL_MEETINGS_SNAPSHOT: null,
+  COURSE_CLAIM_TYPE: null,
+  MANUAL_REVIEW: null,
+  REVIEW_REASON: null,
+} as const satisfies Record<string, string | null>;
+
 export const PAYMENT_REQUEST_COLUMNS_V2 = {
   EXPECTED_AMOUNT: "formula_mkpvpapy",
   AMOUNT_MATCH: "formula_mkpvqn17",
   TOTAL_SUBMITTED: "formula_mkpv2f0n",
   TEACHING_RATE_MIRROR: "lookup_mkpv381y",
   TRAVEL_RATE_MIRROR: "lookup_mkpvay16",
+} as const;
+
+export const COURSE_CLAIM_TYPE_LABELS = {
+  FULL_COURSE: "קורס מלא",
+  PARTIAL_COURSE: "קורס חלקי",
+  REPLACEMENT: "החלפה",
+  CORRECTION: "השלמה / תיקון",
+  PRIVATE_LESSONS: "שיעורים פרטיים",
+  OTHER: "אחר",
+} as const;
+
+export const MANUAL_REVIEW_LABELS = {
+  OK: "תקין",
+  NEEDS_REVIEW: "דורש בדיקה",
+  LEGACY_WITHOUT_MEETINGS: "דרישה ישנה ללא נתוני מפגשים",
+  MEETINGS_OVER_LIMIT: "חריגה ממספר מפגשים",
 } as const;
 
 export const PAYMENT_TYPE_LABELS = {
@@ -64,13 +89,13 @@ export const PAYMENT_REQUEST_STATUS_LABELS = {
 } as const;
 
 export const PAYMENT_REQUEST_STATUS_INDEXES = {
-  WAITING_MANAGER: 0,
-  PAID: 1,
-  REJECTED: 2,
-  WAITING_CLARIFICATION: 3,
-  APPROVED_FOR_PAYMENT: 4,
-  NEW: 5,
-  TRANSFERRED_TO_EXPENSES: 6,
+  NEW: 0,
+  WAITING_MANAGER: 1,
+  WAITING_CLARIFICATION: 2,
+  APPROVED_FOR_PAYMENT: 3,
+  TRANSFERRED_TO_EXPENSES: 4,
+  PAID: 5,
+  REJECTED: 6,
 } as const;
 
 export const ACTIVE_PAYMENT_STATUSES = [
@@ -152,6 +177,7 @@ export const COURSE_STATE_LABELS = {
   RUNNING: "קורס רץ",
   FINISHED: "הסתיים",
   CANCELLED: "בוטל/נדחה",
+  OTHER: "אחר",
 } as const;
 
 export const PRIVATE_LESSON_COLUMNS = {

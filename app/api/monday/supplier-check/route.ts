@@ -5,6 +5,7 @@ import {
   TEACHER_SUPPLIER_STATUS_LABELS,
 } from "@/lib/monday/constants";
 import { MondayApiError } from "@/lib/monday/client";
+import { getMockSupplierCheck, isMondayPreviewMode } from "@/lib/monday/mock";
 import { getSupplierById, getTeacherById } from "@/lib/monday/queries";
 import { getTodayInIsrael } from "@/lib/utils";
 
@@ -26,6 +27,10 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    if (isMondayPreviewMode()) {
+      return NextResponse.json(getMockSupplierCheck(teacherId));
+    }
+
     const teacher = await getTeacherById(teacherId);
 
     if (!teacher) {

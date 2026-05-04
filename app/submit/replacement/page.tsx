@@ -1,53 +1,50 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { CourseRateBox } from "@/components/course-rate-box";
 import { FormPageShell } from "@/components/form-page-shell";
 import { LoadingSpinner } from "@/components/loading-spinner";
 import { SearchSelect } from "@/components/search-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useSessionGuard } from "@/hooks/use-session-guard";
-import type { Course, PaymentRequestPayload, Teacher } from "@/lib/monday/types";
+import type {
+  Course,
+  CourseMeetingsState,
+  ManualReviewState,
+  PaymentRequestPayload,
+  Teacher,
+} from "@/lib/monday/types";
+import { validateMeetingsSubmission } from "@/lib/payment/meetings";
+import { saveSubmissionSummary } from "@/lib/session";
 import { formatShortDate } from "@/lib/utils";
 
 function toDisplayDate(value: string) {
   const [year, month, day] = value.split("-");
-  if (!year || !month || !day) {
-    return value;
-  }
-
-  return `${day}/${month}/${year}`;
+  return year && month && day ? `${day}/${month}/${year}` : value;
 }
 
-function getDeviationMessage(amountText: string, rate: number | null, directionLabel: string) {
-  if (!amountText || rate === null || rate <= 0) {
-    return null;
+function displayNumber(value: number | null | undefined) {
+  return value === null || value === undefined ? "לא הוגדר" : String(value);
+}
+
+function getManualReviewState(reason: string | null): ManualReviewState {
+  if (!reason) {
+    return "ok";
   }
 
-  const amount = Number(amountText);
-  if (!Number.isFinite(amount)) {
-    return null;
+  if (reason.includes("דרישה ישנה")) {
+    return "legacy_without_meetings";
   }
 
-  const deltaPercent = ((amount - rate) / rate) * 100;
-
-  if (deltaPercent > 10) {
-    return {
-      message: `⚠️ סכום ${directionLabel} חורג ב-${Math.round(deltaPercent)}% מהתעריף המוסכם. ודא שזה נכון.`,
-    };
+  if (reason.includes("מתוך")) {
+    return "meetings_over_limit";
   }
 
-  if (deltaPercent < -10) {
-    return {
-      message: `ℹ️ סכום ${directionLabel} נמוך מהתעריף המוסכם. האם היו החלפות או קיזוזים?`,
-    };
-  }
-
-  return null;
+  return "needs_review";
 }
 
 export default function ReplacementSubmitPage() {
@@ -63,22 +60,29 @@ export default function ReplacementSubmitPage() {
   const [replacedTeacherId, setReplacedTeacherId] = useState("");
   const [courseId, setCourseId] = useState("");
   const [replacementDate, setReplacementDate] = useState("");
-  const [teachingAmount, setTeachingAmount] = useState("");
-  const [travelAmount, setTravelAmount] = useState("");
+  const [requestedMeetings, setRequestedMeetings] = useState("");
+  const [details, setDetails] = useState("");
+  const [meetingsState, setMeetingsState] = useState<CourseMeetingsState | null>(null);
+  const [meetingsLoading, setMeetingsLoading] = useState(false);
+  const [meetingsError, setMeetingsError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  const selectedTeacher = teachers.find((teacher) => teacher.id === Number(replacedTeacherId)) || null;
   const selectedCourse = courses.find((course) => course.id === Number(courseId)) || null;
-  const teachingWarning = getDeviationMessage(
-    teachingAmount,
-    selectedCourse?.teachingRate ?? null,
-    "ההוראה",
-  );
-  const travelWarning = getDeviationMessage(
-    travelAmount,
-    selectedCourse?.travelRate ?? null,
-    "הנסיעות",
-  );
+  const requestedMeetingsNumber = Number(requestedMeetings);
+  const validation = useMemo(() => {
+    if (!meetingsState || !Number.isFinite(requestedMeetingsNumber)) {
+      return null;
+    }
+
+    return validateMeetingsSubmission({
+      totalMeetings: meetingsState.totalMeetings,
+      alreadySubmittedMeetings: meetingsState.submittedMeetingsTotal,
+      requestedMeetings: requestedMeetingsNumber,
+      hasLegacyClaimsWithoutMeetings: meetingsState.hasLegacyClaimsWithoutMeetings,
+    });
+  }, [meetingsState, requestedMeetingsNumber]);
 
   useEffect(() => {
     let ignore = false;
@@ -116,9 +120,13 @@ export default function ReplacementSubmitPage() {
   }, []);
 
   useEffect(() => {
+    setCourseId("");
+    setCourses([]);
+    setMeetingsState(null);
+    setRequestedMeetings("");
+    setSubmitError(null);
+
     if (!replacedTeacherId) {
-      setCourses([]);
-      setCourseId("");
       return;
     }
 
@@ -129,7 +137,9 @@ export default function ReplacementSubmitPage() {
       setCoursesError(null);
 
       try {
-        const response = await fetch(`/api/monday/courses?teacherId=${replacedTeacherId}`);
+        const response = await fetch(
+          `/api/monday/courses?teacherId=${replacedTeacherId}&routeKey=replacement`,
+        );
         if (!response.ok) {
           throw new Error("לא הצלחנו לטעון את קורסי המורה שהוחלף.");
         }
@@ -140,9 +150,7 @@ export default function ReplacementSubmitPage() {
         }
       } catch (requestError) {
         if (!ignore) {
-          setCoursesError(
-            requestError instanceof Error ? requestError.message : "שגיאה בטעינת קורסים.",
-          );
+          setCoursesError(requestError instanceof Error ? requestError.message : "שגיאה בטעינת קורסים.");
         }
       } finally {
         if (!ignore) {
@@ -159,9 +167,48 @@ export default function ReplacementSubmitPage() {
   }, [replacedTeacherId]);
 
   useEffect(() => {
-    setTeachingAmount("");
-    setTravelAmount("");
+    setRequestedMeetings("");
     setSubmitError(null);
+    setMeetingsState(null);
+    setMeetingsError(null);
+
+    if (!courseId) {
+      return;
+    }
+
+    let ignore = false;
+
+    async function loadMeetingsState() {
+      setMeetingsLoading(true);
+
+      try {
+        const response = await fetch(`/api/monday/course-meetings?courseId=${courseId}`);
+        if (!response.ok) {
+          throw new Error("לא הצלחנו לטעון את מצב המפגשים בקורס.");
+        }
+
+        const data = (await response.json()) as CourseMeetingsState;
+        if (!ignore) {
+          setMeetingsState(data);
+        }
+      } catch (requestError) {
+        if (!ignore) {
+          setMeetingsError(
+            requestError instanceof Error ? requestError.message : "שגיאה בטעינת מצב המפגשים.",
+          );
+        }
+      } finally {
+        if (!ignore) {
+          setMeetingsLoading(false);
+        }
+      }
+    }
+
+    void loadMeetingsState();
+
+    return () => {
+      ignore = true;
+    };
   }, [courseId]);
 
   if (!isReady || !currentSession) {
@@ -169,29 +216,54 @@ export default function ReplacementSubmitPage() {
   }
 
   async function handleSubmit() {
-    if (!replacedTeacherId || !courseId || !replacementDate || !teachingAmount) {
-      setSubmitError("יש למלא את כל שדות החובה לפני השליחה.");
-      return;
-    }
-
     if (!currentSession) {
       return;
     }
 
+    if (
+      !selectedTeacher ||
+      !selectedCourse ||
+      !meetingsState ||
+      !replacementDate ||
+      !requestedMeetings ||
+      requestedMeetingsNumber <= 0
+    ) {
+      setSubmitError("יש למלא את כל שדות החובה לפני השליחה.");
+      return;
+    }
+
+    const currentValidation =
+      validation ??
+      validateMeetingsSubmission({
+        totalMeetings: meetingsState.totalMeetings,
+        alreadySubmittedMeetings: meetingsState.submittedMeetingsTotal,
+        requestedMeetings: requestedMeetingsNumber,
+        hasLegacyClaimsWithoutMeetings: meetingsState.hasLegacyClaimsWithoutMeetings,
+      });
+
     const sessionData = currentSession;
     setSubmitting(true);
     setSubmitError(null);
+
+    const reviewReason = [currentValidation.reviewReason, details.trim() ? `פירוט: ${details.trim()}` : null]
+      .filter(Boolean)
+      .join(" | ");
 
     const payload: PaymentRequestPayload = {
       submitterId: sessionData.teacherId,
       supplierId: sessionData.supplierId,
       teacherName: sessionData.teacherName,
       paymentType: "replacement",
-      replacedTeacherId: Number(replacedTeacherId),
-      courseId: Number(courseId),
+      replacedTeacherId: selectedTeacher.id,
+      courseId: selectedCourse.id,
       replacementDate: toDisplayDate(replacementDate),
-      teachingAmount: Number(teachingAmount),
-      travelAmount: travelAmount ? Number(travelAmount) : 0,
+      requestedMeetings: requestedMeetingsNumber,
+      totalMeetingsSnapshot: meetingsState.totalMeetings,
+      courseClaimType: "replacement",
+      requiresManualReview: currentValidation.requiresManualReview,
+      manualReviewState: getManualReviewState(currentValidation.reviewReason),
+      reviewReason: reviewReason || currentValidation.reviewReason,
+      details: details.trim() || undefined,
     };
 
     try {
@@ -208,6 +280,14 @@ export default function ReplacementSubmitPage() {
         throw new Error(errorPayload.error || "אירעה שגיאה בשליחת הדרישה. נסה שוב או פנה למשרד.");
       }
 
+      saveSubmissionSummary({
+        paymentTypeLabel: "החלפה",
+        subject: selectedCourse.name,
+        unitLabel: "מפגשים",
+        requestedUnits: requestedMeetingsNumber,
+        requiresManualReview: currentValidation.requiresManualReview,
+        reviewReason: currentValidation.reviewReason,
+      });
       router.push("/success");
     } catch (requestError) {
       setSubmitError(
@@ -225,8 +305,8 @@ export default function ReplacementSubmitPage() {
       title="דרישת תשלום עבור החלפת מורה"
       description={
         <>
-          <p>תודה שנרתמת לעזור בהחלפת מורה! כל הכבוד!</p>
-          <p>עליך לפרט סכום לתשלום עבור הוראה ועבור נסיעות (אם היו).</p>
+          <p>תודה שנרתמת לעזור בהחלפת מורה. במסלול הזה מזינים רק את פרטי ההחלפה ומספר המפגשים.</p>
+          <p>המערכת בודקת את מצב המפגשים בקורס ושולחת לבדיקה ידנית אם נדרשת השלמה או קיזוז.</p>
         </>
       }
     >
@@ -235,7 +315,9 @@ export default function ReplacementSubmitPage() {
         {teachersLoading ? (
           <LoadingSpinner label="טוען מורים..." />
         ) : teachersError ? (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{teachersError}</div>
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            {teachersError}
+          </div>
         ) : (
           <SearchSelect
             options={teachers.map((teacher) => ({
@@ -256,31 +338,73 @@ export default function ReplacementSubmitPage() {
         {coursesLoading ? (
           <LoadingSpinner label="טוען את קורסי המורה שהוחלף..." />
         ) : coursesError ? (
-          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{coursesError}</div>
+          <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            {coursesError}
+          </div>
         ) : (
           <SearchSelect
             options={courses.map((course) => ({
               value: String(course.id),
-              label: `${course.name} (${formatShortDate(course.startDate)})`,
+              label: course.name,
+              description: [
+                `התחלה: ${formatShortDate(course.startDate)}`,
+                `סיום: ${formatShortDate(course.endDate)}`,
+                `מפגשים: ${displayNumber(course.lessonsCount)}`,
+                `סטטוס: ${course.state}`,
+              ].join(" | "),
             }))}
             value={courseId}
             onValueChange={setCourseId}
             placeholder="בחר קורס"
             searchPlaceholder="חיפוש קורס..."
-            emptyText="לא נמצאו קורסים למורה זה"
+            emptyText="לא נמצאו קורסים רצים או שהסתיימו"
             disabled={!replacedTeacherId}
           />
         )}
       </div>
 
-      {selectedCourse ? (
-        <CourseRateBox
-          teachingRate={selectedCourse.teachingRate}
-          travelRate={selectedCourse.travelRate}
-        />
+      {meetingsLoading ? <LoadingSpinner label="טוען את מצב המפגשים בקורס..." /> : null}
+
+      {meetingsError ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          {meetingsError}
+        </div>
       ) : null}
 
-      <div className="grid gap-5 sm:grid-cols-3">
+      {meetingsState ? (
+        <div className="space-y-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-4 text-sm text-slate-800">
+          <h2 className="text-base font-semibold text-slate-950">מצב מפגשים בקורס</h2>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-lg bg-white px-3 py-3">
+              <div className="text-xs text-slate-500">מספר מפגשים בקורס</div>
+              <div className="mt-1 text-lg font-semibold">{displayNumber(meetingsState.totalMeetings)}</div>
+            </div>
+            <div className="rounded-lg bg-white px-3 py-3">
+              <div className="text-xs text-slate-500">כבר הוגשו בדרישות פעילות</div>
+              <div className="mt-1 text-lg font-semibold">{meetingsState.submittedMeetingsTotal}</div>
+            </div>
+            <div className="rounded-lg bg-white px-3 py-3">
+              <div className="text-xs text-slate-500">יתרה זמינה להגשה</div>
+              <div className="mt-1 text-lg font-semibold">{displayNumber(meetingsState.remainingMeetings)}</div>
+            </div>
+          </div>
+          {meetingsState.existingClaims.length ? (
+            <ul className="space-y-2">
+              {meetingsState.existingClaims.map((claim) => (
+                <li key={claim.itemId} className="rounded-lg bg-white px-3 py-2">
+                  {claim.teacherName} |{" "}
+                  {claim.meetingsCount === null ? "ללא נתוני מפגשים" : `${claim.meetingsCount} מפגשים`} |{" "}
+                  {claim.statusLabel || "ללא סטטוס"}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="rounded-lg bg-white px-3 py-2">לא נמצאו דרישות פעילות על הקורס.</p>
+          )}
+        </div>
+      ) : null}
+
+      <div className="grid gap-5 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="replacementDate">מתי החלפתי</Label>
           <Input
@@ -291,40 +415,50 @@ export default function ReplacementSubmitPage() {
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="replacementTeachingAmount">הוראה - סכום</Label>
+          <Label htmlFor="requestedMeetings">כמה מפגשים החלפתי</Label>
           <Input
-            id="replacementTeachingAmount"
+            id="requestedMeetings"
             type="number"
-            min={0}
-            max={50000}
-            placeholder="0"
-            value={teachingAmount}
-            onChange={(event) => setTeachingAmount(event.target.value)}
+            min={1}
+            placeholder="מספר מפגשים"
+            value={requestedMeetings}
+            onChange={(event) => setRequestedMeetings(event.target.value)}
+            disabled={!meetingsState}
           />
-          {teachingWarning ? (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              {teachingWarning.message}
-            </div>
-          ) : null}
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="replacementTravelAmount">נסיעות - סכום</Label>
-          <Input
-            id="replacementTravelAmount"
-            type="number"
-            min={0}
-            max={10000}
-            placeholder="0"
-            value={travelAmount}
-            onChange={(event) => setTravelAmount(event.target.value)}
-          />
-          {travelWarning ? (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              {travelWarning.message}
-            </div>
-          ) : null}
         </div>
       </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="details">פירוט קצר אם צריך</Label>
+        <Textarea id="details" rows={3} value={details} onChange={(event) => setDetails(event.target.value)} />
+      </div>
+
+      {validation && requestedMeetingsNumber > 0 && meetingsState ? (
+        <div
+          className={
+            validation.requiresManualReview
+              ? "rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-950"
+              : "rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-950"
+          }
+        >
+          <h2 className="mb-3 text-base font-semibold">סיכום דרישה</h2>
+          <div className="space-y-1">
+            <p>מגיש/ה: {currentSession.teacherName}</p>
+            <p>סוג דרישה: החלפה</p>
+            <p>את מי החלפתי: {selectedTeacher?.name}</p>
+            <p>קורס: {selectedCourse?.name}</p>
+            <p>מפגשים בדרישה הנוכחית: {requestedMeetingsNumber}</p>
+            <p>
+              סה&quot;כ לאחר ההגשה: {validation.totalAfterSubmission} מתוך{" "}
+              {displayNumber(meetingsState.totalMeetings)}
+            </p>
+            <p className="font-semibold">
+              סטטוס: {validation.requiresManualReview ? "נדרשת בדיקה ידנית" : "תקין להגשה"}
+            </p>
+            {validation.reviewReason ? <p>{validation.reviewReason}</p> : null}
+          </div>
+        </div>
+      ) : null}
 
       {submitError ? (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{submitError}</div>
@@ -332,10 +466,14 @@ export default function ReplacementSubmitPage() {
 
       <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
         <Button variant="outline" onClick={() => router.push("/")}>
-          חזרה ←
+          חזרה
         </Button>
-        <Button onClick={() => void handleSubmit()} disabled={submitting || teachersLoading || coursesLoading}>
-          {submitting ? "שולח..." : "שליחת בקשה"}
+        <Button onClick={() => void handleSubmit()} disabled={submitting || teachersLoading || coursesLoading || meetingsLoading}>
+          {submitting
+            ? "שולח..."
+            : validation?.requiresManualReview
+              ? "שליחה לבדיקה"
+              : "שליחת הדרישה"}
         </Button>
       </div>
     </FormPageShell>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { MondayApiError } from "@/lib/monday/client";
+import { getMockReplacementLookup, isMondayPreviewMode } from "@/lib/monday/mock";
 import { getReplacementLookupResult } from "@/lib/monday/queries";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +19,10 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    if (isMondayPreviewMode()) {
+      return NextResponse.json(getMockReplacementLookup(teacherId, courseId));
+    }
+
     const result = await getReplacementLookupResult(teacherId, courseId);
     return NextResponse.json(result);
   } catch (error) {
