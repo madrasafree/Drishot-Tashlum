@@ -33,7 +33,6 @@ npm install
 ```env
 MONDAY_API_TOKEN=your_token_here
 MONDAY_API_URL=https://api.monday.com/v2
-MONDAY_PREVIEW_MODE=false
 ```
 
 3. הרץ סביבת פיתוח:
@@ -48,7 +47,7 @@ npm run dev
 
 - `MONDAY_API_TOKEN` נדרש רק לחיבור אמיתי ל-Monday. אם הוא חסר, האפליקציה עוברת אוטומטית ל-preview.
 - `MONDAY_API_URL` אופציונלי. ברירת מחדל: `https://api.monday.com/v2`
-- `MONDAY_PREVIEW_MODE` אופציונלי. `true` מכריח preview, `false` מכריח חיבור אמיתי ודורש `MONDAY_API_TOKEN`.
+- Preview עובד אוטומטית כשאין `MONDAY_API_TOKEN`, או ידנית דרך `/?preview=1`. כשיש טוקן, כניסה רגילה ל-`/` תמיד תעבוד מול Monday אמיתי.
 
 ## פריסה ב-Cloudflare
 

@@ -270,13 +270,7 @@ const MOCK_COURSE_MEETINGS_STATE: Record<number, CourseMeetingsState> = {
 };
 
 export function isMondayPreviewMode() {
-  const previewMode = getRuntimeEnv("MONDAY_PREVIEW_MODE");
-
-  if (previewMode === "false") {
-    return false;
-  }
-
-  return previewMode === "true" || !getRuntimeEnv("MONDAY_API_TOKEN");
+  return !getRuntimeEnv("MONDAY_API_TOKEN");
 }
 
 export function isPreviewRequest(searchParams: URLSearchParams) {
