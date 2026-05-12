@@ -5,7 +5,9 @@ import {
   BOARD_IDS,
   COURSE_CLAIM_TYPE_LABELS,
   COURSE_COLUMNS,
+  COURSE_PAYMENT_REQUEST_BLOCKING_STATUSES,
   COURSE_STATE_LABELS,
+  COURSE_TEACHER_STATUS_LABELS,
   DEFAULT_STATUS_LABEL,
   MANUAL_REVIEW_LABELS,
   PAYMENT_REQUEST_COLUMNS,
@@ -61,6 +63,10 @@ type ColumnValueResponse = {
 type MondayItemResponse = {
   id: string;
   name: string;
+  group?: {
+    id: string;
+    title: string;
+  } | null;
   column_values: ColumnValueResponse[];
 };
 
@@ -71,9 +77,17 @@ type ItemsResponse = {
 type BoardsItemsResponse = {
   boards: Array<{
     items_page: {
+      cursor?: string | null;
       items: MondayItemResponse[];
     };
   }>;
+};
+
+type NextItemsPageResponse = {
+  next_items_page: {
+    cursor?: string | null;
+    items: MondayItemResponse[];
+  };
 };
 
 type CreateItemResponse = {
@@ -124,6 +138,21 @@ const TEACHER_COLUMN_IDS = [
   TEACHER_COLUMNS.COURSES_RELATION,
   TEACHER_COLUMNS.PRIVATE_LESSONS_RELATION,
 ];
+
+const COURSE_COLUMN_IDS = [
+  COURSE_COLUMNS.START_DATE,
+  COURSE_COLUMNS.END_DATE,
+  COURSE_COLUMNS.TEACHING_RATE,
+  COURSE_COLUMNS.TRAVEL_RATE,
+  COURSE_COLUMNS.LESSONS_COUNT,
+  COURSE_COLUMNS.COURSE_STATE,
+  COURSE_COLUMNS.TEACHER_STATUS,
+  COURSE_COLUMNS.PAYMENT_STATUS,
+];
+
+const COURSE_LOOKBACK_DAYS = 365;
+const COURSE_PAGE_LIMIT = 500;
+const COURSE_MAX_PAGES = 10;
 
 function getColumn(item: MondayItemResponse, columnId: string) {
   return item.column_values.find((column) => column.id === columnId);
@@ -192,6 +221,15 @@ function parseCourse(item: MondayItemResponse): Course {
     travelRate: parseNumber(getColumn(item, COURSE_COLUMNS.TRAVEL_RATE)),
     lessonsCount: parseNumber(getColumn(item, COURSE_COLUMNS.LESSONS_COUNT)),
     state: getColumn(item, COURSE_COLUMNS.COURSE_STATE)?.label || getColumn(item, COURSE_COLUMNS.COURSE_STATE)?.text || "",
+    teacherStatus:
+      getColumn(item, COURSE_COLUMNS.TEACHER_STATUS)?.label ||
+      getColumn(item, COURSE_COLUMNS.TEACHER_STATUS)?.text ||
+      "",
+    paymentStatus:
+      getColumn(item, COURSE_COLUMNS.PAYMENT_STATUS)?.label ||
+      getColumn(item, COURSE_COLUMNS.PAYMENT_STATUS)?.text ||
+      "",
+    groupTitle: item.group?.title || "",
   };
 }
 
@@ -216,6 +254,10 @@ async function getItemsByIds(ids: number[], columnIds: string[]): Promise<Monday
       items(ids: $ids) {
         id
         name
+        group {
+          id
+          title
+        }
         column_values(ids: $columnIds) {
           ${COLUMN_VALUE_FIELDS}
         }
@@ -239,14 +281,7 @@ export async function getTeacherById(teacherId: number): Promise<Teacher | null>
 }
 
 export async function getCourseById(courseId: number): Promise<Course | null> {
-  const items = await getItemsByIds([courseId], [
-    COURSE_COLUMNS.START_DATE,
-    COURSE_COLUMNS.END_DATE,
-    COURSE_COLUMNS.TEACHING_RATE,
-    COURSE_COLUMNS.TRAVEL_RATE,
-    COURSE_COLUMNS.LESSONS_COUNT,
-    COURSE_COLUMNS.COURSE_STATE,
-  ]);
+  const items = await getItemsByIds([courseId], COURSE_COLUMN_IDS);
 
   const course = items[0];
   return course ? parseCourse(course) : null;
@@ -319,29 +354,58 @@ export async function getSupplierById(supplierId: number): Promise<Supplier | nu
 const getCoursesForTeacherCached = unstable_cache(
   async (teacherId: number) => {
     const teacher = await getTeacherById(teacherId);
-    if (!teacher?.coursesRelationIds.length) {
-      return [];
+    const coursesById = new Map<number, Course>();
+
+    const query = `
+      query GetCoursesLinkedToTeacher($columnIds: [String!]) {
+        boards(ids: [${BOARD_IDS.COURSES}]) {
+          items_page(
+            limit: 500
+            query_params: {
+              rules: [
+                {
+                  column_id: "${COURSE_COLUMNS.TEACHER_RELATION}"
+                  compare_value: [${teacherId}]
+                  operator: any_of
+                }
+              ]
+            }
+          ) {
+            items {
+              id
+              name
+              group {
+                id
+                title
+              }
+              column_values(ids: $columnIds) {
+                ${COLUMN_VALUE_FIELDS}
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    const response = await fetchQuery<BoardsItemsResponse>(query, {
+      columnIds: COURSE_COLUMN_IDS,
+    });
+
+    for (const course of (response.boards[0]?.items_page.items || []).map(parseCourse)) {
+      coursesById.set(course.id, course);
     }
 
-    const items = await getItemsByIds(teacher.coursesRelationIds, [
-      COURSE_COLUMNS.START_DATE,
-      COURSE_COLUMNS.END_DATE,
-      COURSE_COLUMNS.TEACHING_RATE,
-      COURSE_COLUMNS.TRAVEL_RATE,
-      COURSE_COLUMNS.LESSONS_COUNT,
-      COURSE_COLUMNS.COURSE_STATE,
-    ]);
+    if (teacher?.coursesRelationIds.length) {
+      const relationItems = await getItemsByIds(teacher.coursesRelationIds, COURSE_COLUMN_IDS);
 
-    const allowedStates = new Set<string>([
-      COURSE_STATE_LABELS.RUNNING,
-      COURSE_STATE_LABELS.FINISHED,
-      COURSE_STATE_LABELS.UPCOMING,
-    ]);
+      for (const course of relationItems.map(parseCourse)) {
+        coursesById.set(course.id, course);
+      }
+    }
 
-    return items
-      .map(parseCourse)
-      .filter((course) => allowedStates.has(course.state))
-      .sort((left, right) => left.name.localeCompare(right.name, "he"));
+    return Array.from(coursesById.values())
+      .filter(isGenerallyVisibleCourse)
+      .sort(compareCoursesByDateDesc);
   },
   ["courses-for-teacher"],
   { revalidate: 30 },
@@ -351,19 +415,196 @@ export async function getCoursesForTeacher(teacherId: number): Promise<Course[]>
   return getCoursesForTeacherCached(teacherId);
 }
 
+async function getAllCourseItems(): Promise<MondayItemResponse[]> {
+  const firstPageQuery = `
+    query GetAllCoursesFirstPage($columnIds: [String!]) {
+      boards(ids: [${BOARD_IDS.COURSES}]) {
+        items_page(limit: ${COURSE_PAGE_LIMIT}) {
+          cursor
+          items {
+            id
+            name
+            group {
+              id
+              title
+            }
+            column_values(ids: $columnIds) {
+              ${COLUMN_VALUE_FIELDS}
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const firstPage = await fetchQuery<BoardsItemsResponse>(firstPageQuery, {
+    columnIds: COURSE_COLUMN_IDS,
+  });
+
+  const firstItemsPage = firstPage.boards[0]?.items_page;
+  const items = [...(firstItemsPage?.items || [])];
+  let cursor = firstItemsPage?.cursor || null;
+  let pagesLoaded = 1;
+
+  while (cursor && pagesLoaded < COURSE_MAX_PAGES) {
+    const nextPageQuery = `
+      query GetAllCoursesNextPage($cursor: String!, $columnIds: [String!]) {
+        next_items_page(limit: ${COURSE_PAGE_LIMIT}, cursor: $cursor) {
+          cursor
+          items {
+            id
+            name
+            group {
+              id
+              title
+            }
+            column_values(ids: $columnIds) {
+              ${COLUMN_VALUE_FIELDS}
+            }
+          }
+        }
+      }
+    `;
+
+    const nextPage = await fetchQuery<NextItemsPageResponse>(nextPageQuery, {
+      cursor,
+      columnIds: COURSE_COLUMN_IDS,
+    });
+
+    items.push(...(nextPage.next_items_page.items || []));
+    cursor = nextPage.next_items_page.cursor || null;
+    pagesLoaded += 1;
+  }
+
+  return items;
+}
+
+const getRecentReplacementCoursesCached = unstable_cache(
+  async () => {
+    const items = await getAllCourseItems();
+
+    return items
+      .map(parseCourse)
+      .filter(isEligibleReplacementCourse)
+      .filter(isCourseFromLastYear)
+      .sort(compareCoursesByDateDesc);
+  },
+  ["recent-replacement-courses"],
+  { revalidate: 30 },
+);
+
+function getCourseDateTimestamp(course: Course) {
+  const timestamps = [course.startDate, course.endDate]
+    .map((date) => (date ? Date.parse(date) : Number.NaN))
+    .filter((timestamp) => !Number.isNaN(timestamp));
+
+  if (!timestamps.length) {
+    return null;
+  }
+
+  return Math.max(...timestamps);
+}
+
+function compareCoursesByDateDesc(left: Course, right: Course) {
+  const leftTimestamp = getCourseDateTimestamp(left);
+  const rightTimestamp = getCourseDateTimestamp(right);
+
+  if (leftTimestamp === null && rightTimestamp === null) {
+    return left.name.localeCompare(right.name, "he");
+  }
+
+  if (leftTimestamp === null) {
+    return 1;
+  }
+
+  if (rightTimestamp === null) {
+    return -1;
+  }
+
+  return rightTimestamp - leftTimestamp || left.name.localeCompare(right.name, "he");
+}
+
+function isCourseFromLastYear(course: Course) {
+  const timestamp = getCourseDateTimestamp(course);
+  if (timestamp === null) {
+    return true;
+  }
+
+  return timestamp >= Date.now() - COURSE_LOOKBACK_DAYS * 24 * 60 * 60 * 1000;
+}
+
+function isCourseInFinishedGroup(course: Course) {
+  if (!course.groupTitle) {
+    return false;
+  }
+
+  return course.groupTitle.includes("הסתיימו") || course.groupTitle.includes("שהסתיימו");
+}
+
+function isFinishedCourse(course: Course) {
+  return (
+    course.state === COURSE_STATE_LABELS.FINISHED ||
+    course.teacherStatus === COURSE_TEACHER_STATUS_LABELS.FINISHED ||
+    isCourseInFinishedGroup(course)
+  );
+}
+
+function isRunningCourse(course: Course) {
+  return course.state === COURSE_STATE_LABELS.RUNNING;
+}
+
+function isGenerallyVisibleCourse(course: Course) {
+  return (
+    course.state === COURSE_STATE_LABELS.UPCOMING ||
+    isRunningCourse(course) ||
+    isFinishedCourse(course)
+  );
+}
+
+function hasCoursePaymentRequestAlreadySubmitted(course: Course) {
+  return COURSE_PAYMENT_REQUEST_BLOCKING_STATUSES.some((status) => status === course.paymentStatus);
+}
+
+function isEligibleReplacementCourse(course: Course) {
+  return isRunningCourse(course) || isFinishedCourse(course);
+}
+
 function filterCoursesByStates(courses: Course[], allowedStates: readonly string[]) {
   const allowed = new Set(allowedStates);
-  return courses.filter((course) => allowed.has(course.state));
+  return courses.filter(
+    (course) =>
+      allowed.has(course.state) ||
+      (allowed.has(COURSE_STATE_LABELS.FINISHED) && isFinishedCourse(course)) ||
+      (allowed.has(COURSE_STATE_LABELS.RUNNING) && isRunningCourse(course)),
+  );
 }
 
 export async function getEligibleCoursesForPayment(teacherId: number): Promise<Course[]> {
   const courses = await getCoursesForTeacher(teacherId);
-  return filterCoursesByStates(courses, [COURSE_STATE_LABELS.FINISHED]);
+  return courses
+    .filter((course) => isFinishedCourse(course) && !hasCoursePaymentRequestAlreadySubmitted(course))
+    .sort(compareCoursesByDateDesc);
 }
 
 export async function getEligibleCoursesForReplacement(teacherId: number): Promise<Course[]> {
-  const courses = await getCoursesForTeacher(teacherId);
-  return filterCoursesByStates(courses, [COURSE_STATE_LABELS.RUNNING, COURSE_STATE_LABELS.FINISHED]);
+  const coursesById = new Map<number, Course>();
+
+  for (const course of await getRecentReplacementCoursesCached()) {
+    coursesById.set(course.id, course);
+  }
+
+  const teacherCourses = filterCoursesByStates(await getCoursesForTeacher(teacherId), [
+    COURSE_STATE_LABELS.RUNNING,
+    COURSE_STATE_LABELS.FINISHED,
+  ]);
+
+  for (const course of teacherCourses) {
+    if (isCourseFromLastYear(course)) {
+      coursesById.set(course.id, course);
+    }
+  }
+
+  return Array.from(coursesById.values()).sort(compareCoursesByDateDesc);
 }
 
 export async function getAllActiveTeachers(): Promise<TeacherSimple[]> {

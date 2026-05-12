@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, ChevronsUpDown } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -29,6 +29,7 @@ interface SearchSelectProps {
   value?: string;
   onValueChange: (value: string) => void;
   disabled?: boolean;
+  pageSize?: number;
 }
 
 export function SearchSelect({
@@ -39,10 +40,38 @@ export function SearchSelect({
   value,
   onValueChange,
   disabled,
+  pageSize,
 }: SearchSelectProps) {
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
 
   const selectedOption = options.find((option) => option.value === value);
+  const filteredOptions = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+
+    if (!normalizedSearch) {
+      return options;
+    }
+
+    return options.filter((option) =>
+      [option.label, option.description]
+        .filter((entry): entry is string => Boolean(entry))
+        .some((entry) => entry.toLowerCase().includes(normalizedSearch)),
+    );
+  }, [options, search]);
+  const totalPages = pageSize ? Math.max(1, Math.ceil(filteredOptions.length / pageSize)) : 1;
+  const visibleOptions = pageSize
+    ? filteredOptions.slice((page - 1) * pageSize, page * pageSize)
+    : filteredOptions;
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, options.length]);
+
+  useEffect(() => {
+    setPage((currentPage) => Math.min(currentPage, totalPages));
+  }, [totalPages]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -62,15 +91,14 @@ export function SearchSelect({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[var(--radix-popover-trigger-width)] rounded-xl border border-slate-200 bg-white p-0 shadow-xl">
-        <Command filter={(valueText, search, keywords) => {
-          const haystack = [valueText, ...(keywords || [])].join(" ").toLowerCase();
-          return haystack.includes(search.toLowerCase()) ? 1 : 0;
-        }}>
-          <CommandInput placeholder={searchPlaceholder} />
+        <Command shouldFilter={false}>
+          <CommandInput placeholder={searchPlaceholder} value={search} onValueChange={setSearch} />
           <CommandList>
-            <CommandEmpty>{emptyText}</CommandEmpty>
             <CommandGroup>
-              {options.map((option) => (
+              {visibleOptions.length === 0 ? (
+                <CommandEmpty>{emptyText}</CommandEmpty>
+              ) : null}
+              {visibleOptions.map((option) => (
                 <CommandItem
                   key={option.value}
                   value={option.label}
@@ -98,6 +126,31 @@ export function SearchSelect({
               ))}
             </CommandGroup>
           </CommandList>
+          {pageSize && totalPages > 1 ? (
+            <div className="flex items-center justify-between border-t border-slate-100 px-3 py-2 text-xs text-slate-500">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setPage((currentPage) => Math.max(1, currentPage - 1))}
+                disabled={page <= 1}
+              >
+                הקודם
+              </Button>
+              <span>
+                עמוד {page} מתוך {totalPages} · {filteredOptions.length} תוצאות
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setPage((currentPage) => Math.min(totalPages, currentPage + 1))}
+                disabled={page >= totalPages}
+              >
+                הבא
+              </Button>
+            </div>
+          ) : null}
         </Command>
       </PopoverContent>
     </Popover>

@@ -168,6 +168,7 @@ export const COURSE_COLUMNS = {
   TEACHING_RATE: "numeric",
   TRAVEL_RATE: "numeric1",
   COURSE_STATE: "status_mkkzjxkt",
+  TEACHER_STATUS: "status05",
   PAYMENT_STATUS: "color",
   LESSONS_COUNT: "numbers9",
   LEVEL: "numbers4",
@@ -180,6 +181,33 @@ export const COURSE_STATE_LABELS = {
   CANCELLED: "בוטל/נדחה",
   OTHER: "אחר",
 } as const;
+
+export const COURSE_TEACHER_STATUS_LABELS = {
+  NEEDS_ASSIGNMENT: "צריך שיבוץ",
+  HAS_TEACHER: "יש מורה",
+  NEEDS_RECRUITMENT: "צריך גיוס!",
+  NOT_READY: "לא מוכן לשיבוץ עדיין",
+  TEACHER_SENT_STUDENT_EMAIL: "מורה שלח מייל לתלמידים",
+  FROZEN: "קפוא",
+  FINISHED: "קורס שהסתיים",
+} as const;
+
+export const COURSE_PAYMENT_STATUS_LABELS = {
+  TEACHER_SENT_PAYMENT_REQUEST: "מורה שלח דרישת תשלום",
+  TEACHER_SENT_RECEIPT: "מורה שלח קבלה",
+  PAID_TO_TEACHER: "שולם למורה",
+  EMAIL_SENT_TO_TEACHER: "נשלח מייל למורה",
+  READY_TO_SEND_TEACHER_EMAIL: "מוכן לשיגור מייל למורה",
+  NOT_READY: "לא אפוי",
+  TEACHER_APPROVED_OPENING_EMAIL: "מורה אישר מייל פתיחה",
+  HAD_REPLACEMENT: "היה מורה מחליף בקורס",
+  CREATE_EXPENSE_BUTTON: "כפתור יצירת הוצאה",
+} as const;
+
+export const COURSE_PAYMENT_REQUEST_BLOCKING_STATUSES = [
+  COURSE_PAYMENT_STATUS_LABELS.TEACHER_SENT_PAYMENT_REQUEST,
+  COURSE_PAYMENT_STATUS_LABELS.PAID_TO_TEACHER,
+] as const;
 
 export const PRIVATE_LESSON_COLUMNS = {
   NAME: "name",

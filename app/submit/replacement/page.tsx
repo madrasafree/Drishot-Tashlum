@@ -367,6 +367,7 @@ export default function ReplacementSubmitPage() {
             searchPlaceholder="חיפוש קורס..."
             emptyText="לא נמצאו קורסים רצים או שהסתיימו"
             disabled={!replacedTeacherId}
+            pageSize={20}
           />
         )}
       </div>

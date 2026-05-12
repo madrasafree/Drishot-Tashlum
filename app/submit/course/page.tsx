@@ -272,6 +272,7 @@ export default function CourseSubmitPage() {
             placeholder="בחר קורס שהסתיים"
             searchPlaceholder="חיפוש קורס..."
             emptyText="לא נמצאו קורסים שהסתיימו"
+            pageSize={20}
           />
         )}
       </div>

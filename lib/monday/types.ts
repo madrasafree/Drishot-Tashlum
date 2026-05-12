@@ -32,6 +32,9 @@ export interface Course {
   travelRate: number | null;
   lessonsCount: number | null;
   state: string;
+  teacherStatus?: string;
+  paymentStatus?: string;
+  groupTitle?: string;
 }
 
 export interface PrivateLesson {
