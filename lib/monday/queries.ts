@@ -684,28 +684,23 @@ export class MondayConfigurationError extends Error {
   }
 }
 
-function getRequiredMeetingsColumnId(
-  columnKey: keyof typeof PAYMENT_REQUEST_MEETINGS_COLUMNS,
-  mondayColumnName: string,
-) {
-  const columnId = PAYMENT_REQUEST_MEETINGS_COLUMNS[columnKey];
-
-  if (!columnId) {
-    throw new MondayConfigurationError(
-      `Missing Monday column ID for "${mondayColumnName}". Create the column in board ${BOARD_IDS.PAYMENT_REQUESTS} and update PAYMENT_REQUEST_MEETINGS_COLUMNS.${columnKey}.`,
-    );
-  }
-
-  return columnId;
-}
-
 function setConfiguredMeetingColumn(
   columnValues: Record<string, unknown>,
   columnKey: keyof typeof PAYMENT_REQUEST_MEETINGS_COLUMNS,
   mondayColumnName: string,
   value: unknown,
 ) {
-  columnValues[getRequiredMeetingsColumnId(columnKey, mondayColumnName)] = value;
+  const columnId = PAYMENT_REQUEST_MEETINGS_COLUMNS[columnKey];
+
+  if (!columnId) {
+    console.warn(
+      `[Monday] Optional payment request column is not configured: ${mondayColumnName} (${columnKey}). Falling back to system notes.`,
+    );
+    return false;
+  }
+
+  columnValues[columnId] = value;
+  return true;
 }
 
 function getCourseClaimTypeLabel(claimType: CourseClaimType) {
@@ -738,6 +733,70 @@ function getManualReviewLabel(reviewState: ManualReviewState) {
     default:
       return MANUAL_REVIEW_LABELS.NEEDS_REVIEW;
   }
+}
+
+const MEETINGS_COLUMN_DISPLAY_NAMES: Record<keyof typeof PAYMENT_REQUEST_MEETINGS_COLUMNS, string> = {
+  REQUESTED_MEETINGS: "מספר מפגשים בדרישה",
+  COURSE_TOTAL_MEETINGS_SNAPSHOT: "מספר מפגשים בקורס בעת ההגשה",
+  COURSE_CLAIM_TYPE: "סוג דרישת קורס",
+  MANUAL_REVIEW: "דורש בדיקה ידנית",
+  REVIEW_REASON: "סיבת בדיקה",
+};
+
+function formatSystemValue(value: number | string | null | undefined) {
+  return value === null || value === undefined || value === "" ? "לא הוגדר" : String(value);
+}
+
+function getMissingMeetingColumnNames() {
+  return (Object.keys(PAYMENT_REQUEST_MEETINGS_COLUMNS) as Array<keyof typeof PAYMENT_REQUEST_MEETINGS_COLUMNS>)
+    .filter((columnKey) => !PAYMENT_REQUEST_MEETINGS_COLUMNS[columnKey])
+    .map((columnKey) => MEETINGS_COLUMN_DISPLAY_NAMES[columnKey]);
+}
+
+function buildDeductionNotes(deductionSummary: PaymentRequestPayload["deductionSummary"]) {
+  if (!deductionSummary?.applied || !deductionSummary.replacements.length) {
+    return [];
+  }
+
+  return [
+    "קיזוז החלפות: הוחל קיזוז אוטומטי.",
+    ...deductionSummary.replacements.map((replacement) =>
+      `החלפה #${replacement.id}: ${replacement.replacingTeacherName}, תאריך ${formatSystemValue(
+        replacement.replacementDate,
+      )}`,
+    ),
+  ];
+}
+
+function buildSystemNotes(params: {
+  data: PaymentRequestPayload;
+  paymentLabel: string;
+  statusLabel: string;
+  requestedMeetings: number | null;
+  totalMeetingsSnapshot: number | null;
+  courseClaimType: CourseClaimType;
+  manualReviewState: ManualReviewState;
+  reviewReason: string | null;
+}) {
+  const missingColumns = getMissingMeetingColumnNames();
+  const lines = [
+    "נתוני מערכת מהטופס",
+    `סוג תשלום: ${params.paymentLabel}`,
+    `סטטוס שנקבע: ${params.statusLabel}`,
+    `סוג דרישת קורס: ${getCourseClaimTypeLabel(params.courseClaimType)}`,
+    `מספר מפגשים/שיעורים בדרישה: ${formatSystemValue(params.requestedMeetings)}`,
+    `מספר מפגשים בקורס בעת ההגשה: ${formatSystemValue(params.totalMeetingsSnapshot)}`,
+    `דורש בדיקה ידנית: ${getManualReviewLabel(params.manualReviewState)}`,
+    params.reviewReason ? `סיבת בדיקה: ${params.reviewReason}` : null,
+    params.data.replacementDate ? `תאריך החלפה: ${params.data.replacementDate}` : null,
+    params.data.details ? `פירוט מהמורה: ${params.data.details}` : null,
+    ...buildDeductionNotes(params.data.deductionSummary),
+    missingColumns.length
+      ? `נשמר בתאימות זמנית כי עמודות V2 עדיין לא מוגדרות: ${missingColumns.join(", ")}`
+      : null,
+  ];
+
+  return lines.filter((line): line is string => Boolean(line)).join("\n");
 }
 
 function mergeReviewReasons(...reasons: Array<string | null | undefined>) {
@@ -928,6 +987,19 @@ export async function submitPaymentRequest(data: PaymentRequestPayload): Promise
     label: getManualReviewLabel(manualReviewState),
   });
   setConfiguredMeetingColumn(columnValues, "REVIEW_REASON", "סיבת בדיקה", reviewReason || "");
+
+  const systemNotes = buildSystemNotes({
+    data,
+    paymentLabel,
+    statusLabel,
+    requestedMeetings,
+    totalMeetingsSnapshot,
+    courseClaimType,
+    manualReviewState,
+    reviewReason,
+  });
+
+  columnValues[PAYMENT_REQUEST_COLUMNS.SYSTEM_NOTES] = { text: systemNotes };
 
   const mutation = `
     mutation CreatePaymentRequest(

@@ -23,6 +23,7 @@ export const PAYMENT_REQUEST_COLUMNS = {
   PRIVATE_LESSONS: "board_relation_mm0x9vwe",
   LESSONS_COUNT: "numeric_mm0xxmbn",
   TOTAL_TRANSFER: "numeric_mkptwqxq",
+  SYSTEM_NOTES: "long_text_mm39e63q",
 } as const;
 
 export const PAYMENT_REQUEST_MEETINGS_COLUMNS = {
@@ -89,13 +90,13 @@ export const PAYMENT_REQUEST_STATUS_LABELS = {
 } as const;
 
 export const PAYMENT_REQUEST_STATUS_INDEXES = {
-  NEW: 0,
-  WAITING_MANAGER: 1,
-  WAITING_CLARIFICATION: 2,
-  APPROVED_FOR_PAYMENT: 3,
-  TRANSFERRED_TO_EXPENSES: 4,
-  PAID: 5,
-  REJECTED: 6,
+  NEW: 5,
+  WAITING_MANAGER: 0,
+  WAITING_CLARIFICATION: 3,
+  APPROVED_FOR_PAYMENT: 4,
+  TRANSFERRED_TO_EXPENSES: 6,
+  PAID: 1,
+  REJECTED: 2,
 } as const;
 
 export const ACTIVE_PAYMENT_STATUSES = [
