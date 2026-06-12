@@ -1,6 +1,7 @@
 // Route guards for portal pages, server actions, and API routes.
 // Server-side only.
 
+import type { Route } from "next";
 import { notFound, redirect } from "next/navigation";
 
 import { resolveCurrentUser } from "@/lib/auth/current-user";
@@ -31,7 +32,7 @@ export async function requirePortalUser(): Promise<CurrentUser> {
   const result = await resolveCurrentUser();
 
   if (!result.ok) {
-    redirect(redirectTargetFor(result.reason));
+    redirect(redirectTargetFor(result.reason) as Route);
   }
 
   return result.user;
@@ -41,7 +42,7 @@ export async function requireRole(...roles: PortalRole[]): Promise<CurrentUser> 
   const user = await requirePortalUser();
 
   if (!roles.includes(user.role)) {
-    redirect("/unauthorized?reason=forbidden");
+    redirect("/unauthorized?reason=forbidden" as Route);
   }
 
   return user;
