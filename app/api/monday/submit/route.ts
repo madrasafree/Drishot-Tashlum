@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { getAuthMode } from "@/lib/auth/current-user";
+import { getPortalUserOrNull } from "@/lib/auth/guards";
 import { MondayApiError } from "@/lib/monday/client";
 import { createMockPaymentRequest, isMondayPreviewMode } from "@/lib/monday/mock";
 import { MondayConfigurationError, submitPaymentRequest } from "@/lib/monday/queries";
@@ -52,6 +54,20 @@ function validatePayload(payload: PaymentRequestPayload) {
 export async function POST(request: NextRequest) {
   try {
     const payload = (await request.json()) as PaymentRequestPayload;
+
+    // Anti-spoofing: an authenticated portal user may only submit for themselves.
+    if (getAuthMode() === "cloudflare") {
+      const user = await getPortalUserOrNull();
+
+      if (user && payload.submitterId !== user.teacherItemId) {
+        return NextResponse.json(
+          { error: "ניתן להגיש דרישת תשלום רק עבור עצמך." },
+          { status: 403 },
+        );
+      }
+      // No resolved user: keep the existing standalone-flow behavior until Cloudflare Access fronts the app.
+    }
+
     const validationError = validatePayload(payload);
 
     if (validationError) {
