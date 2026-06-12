@@ -12,14 +12,14 @@ payment logic, adds a database, or exposes `MONDAY_API_TOKEN` to the client.
 
 | # | Agent | Scope (file ownership) | Status |
 |---|-------|------------------------|--------|
-| 0 | Lead Coordinator | integration, `docs/teacher-portal-agent-status.md`, conflict resolution | active |
-| 1 | Architecture / Docs | `docs/teacher-portal-direct-monday-architecture.md`, `docs/teacher-portal-implementation-plan.md`, `docs/teacher-portal-monday-mappings.md` | pending |
-| 2 | Auth / Current User (done by Coordinator for contract stability) | `lib/auth/*` | pending |
-| 3 | Monday Portal Services | `lib/monday/portal-*`, `lib/monday/teachers.ts`, `courses.ts`, `meetings.ts`, `attendance.ts`, `materials.ts`, `private-lessons.ts` | pending |
-| 4 | Portal Shell + Core Pages | `app/(portal)/layout.tsx`, `app/(portal)/dashboard`, `courses`, `meetings`, `attendance`, `private-students`, `components/portal/*`, `app/pending`, `app/blocked`, `app/unauthorized` | pending |
-| 5 | Payments Integration | `app/(portal)/payments/*` | pending |
-| 6 | Materials + Admin + Calendar | `app/(portal)/materials`, `app/(portal)/admin/*`, `app/api/calendar/*` | pending |
-| 7 | QA / Regression Guardian | `docs/teacher-portal-regression-checklist.md`, `docs/teacher-portal-final-qa-report.md` | pending |
+| 0 | Lead Coordinator | integration, `docs/teacher-portal-agent-status.md`, conflict resolution | done |
+| 1 | Architecture / Docs | `docs/teacher-portal-direct-monday-architecture.md`, `docs/teacher-portal-implementation-plan.md`, `docs/teacher-portal-monday-mappings.md` | done |
+| 2 | Auth / Current User (done by Coordinator for contract stability) | `lib/auth/*` | done |
+| 3 | Monday Portal Services | `lib/monday/portal-*`, `lib/monday/teachers.ts`, `courses.ts`, `meetings.ts`, `attendance.ts`, `materials.ts`, `private-lessons.ts` | done |
+| 4 | Portal Shell + Core Pages | `app/(portal)/layout.tsx`, `app/(portal)/dashboard`, `courses`, `meetings`, `attendance`, `private-students`, `components/portal/*`, `app/pending`, `app/blocked`, `app/unauthorized` | done |
+| 5 | Payments Integration | `app/(portal)/payments/*` | done |
+| 6 | Materials + Admin + Calendar | `app/(portal)/materials`, `app/(portal)/admin/*`, `app/api/calendar/*` | done |
+| 7 | QA / Regression Guardian | `docs/teacher-portal-regression-checklist.md`, `docs/teacher-portal-final-qa-report.md` | done |
 
 ## Hard rules (enforced at integration)
 
